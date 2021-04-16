@@ -16,7 +16,7 @@ use tui::{
     style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{
-        Block, BorderType, Borders, Cell, List, ListItem, ListState, Row, Table, Tabs, TableState
+        Block, BorderType, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, Tabs,TableState
     },
     Terminal,
 };
@@ -64,7 +64,6 @@ pub struct StatefulTable<'a> {
     state: TableState,
     items: Vec<Vec<&'a str>>,
 }
-
 
 impl<'a> StatefulTable<'a> {
     fn new() -> StatefulTable<'a> {
@@ -159,6 +158,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut commit_list_state = ListState::default();
     commit_list_state.select(Some(0));
 
+    let repo = match Repository::discover("./") {
+        Ok(repo) => repo,
+        Err(e) => panic!("failed to open: {}", e),
+    };
+
     loop {
         terminal.draw(|rect| {
             let size = rect.size();
@@ -166,6 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .direction(Direction::Vertical)
                 .constraints(
                     [
+                        Constraint::Length(3),
                         Constraint::Length(3),
                         Constraint::Min(2)
                     ]
@@ -193,10 +198,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .select(active_menu_item.into())
                 .block(Block::default().title("Menu").borders(Borders::ALL))
                 .style(Style::default().fg(Color::White))
-                .highlight_style(Style::default().fg(Color::Yellow))
+                // .highlight_style(Style::default().fg(Color::Yellow))
                 .divider(Span::raw("|"));
 
+            let home = Paragraph::new(
+                "Hello"
+                // vec![Spans::from(vec![Span::raw(repo.branches().iter().map(|branch| {branch.name}))])],
+            );
             rect.render_widget(tabs, chunks[0]);
+            rect.render_widget(home, chunks[1]);
 
             match active_menu_item {
                 MenuItem::Home => {
@@ -205,10 +215,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .constraints(
                             [Constraint::Length(15), Constraint::Min(10)].as_ref(),
                         )
-                        .split(chunks[1]);
+                        .split(chunks[2]);
 
                     let (list, right) = render_commit_list(&commit_list_state);
-
                     rect.render_stateful_widget(list, pets_chunks[0], &mut commit_list_state);
                     rect.render_widget(right, pets_chunks[1]);
                 }
@@ -218,6 +227,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match rx.recv()? {
             Event::Input(event) => match event.code {
                 KeyCode::Char('q') => {
+                    disable_raw_mode()?;
+                    terminal.show_cursor()?;
+                    break;
+                }
+
+                KeyCode::Esc => {
                     disable_raw_mode()?;
                     terminal.show_cursor()?;
                     break;
@@ -257,16 +272,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn render_commit_list<'a>(commit_list_state: &ListState) -> (List<'a>, Table<'a>) {
     let commit_list = Block::default()
-        .borders(Borders::ALL)
+        .borders(Borders::TOP | Borders::BOTTOM | Borders::LEFT)
         .style(Style::default().fg(Color::White))
         .title("Commits")
         .border_type(BorderType::Plain);
-
-    let repo = match Repository::discover("./") {
-        Ok(repo) => repo,
-        Err(e) => panic!("failed to open: {}", e),
-    };
-
 
 
     let pet_list = read_db().expect("can fetch pet list");
@@ -283,71 +292,51 @@ fn render_commit_list<'a>(commit_list_state: &ListState) -> (List<'a>, Table<'a>
         })
         .collect();
 
-    let commits = pet_list
-        .get(commit_list_state.selected().expect("there is always a selected pet"))
-        .expect("exists")
-        .clone();
+    let commits = pet_list;
+        // .get(commit_list_state.selected().expect("there is always a selected pet"))
+        // .expect("exists")
+        // .clone();
 
-    let list = List::new(items).block(commit_list).highlight_style(
-        Style::default()
-            .bg(Color::Yellow)
-            .fg(Color::Black)
-            .add_modifier(Modifier::BOLD),
+    let list = List::new(items)
+        .block(commit_list)
+        .highlight_style(
+            Style::default()
+                .bg(Color::Yellow)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
     );
 
-    let commit_list = Table::new(
-        vec![Row::new(vec![
-            Cell::from(Span::raw(commits.id.to_string())),
-            Cell::from(Span::raw(commits.name)),
-            Cell::from(Span::raw(commits.category)),
-            Cell::from(Span::raw(commits.age.to_string())),
-            Cell::from(Span::raw(commits.created_at.to_string())),
-        ])]
-    )
-    .highlight_style(
-        Style::default()
-            .bg(Color::Yellow)
-            .fg(Color::Black)
-            .add_modifier(Modifier::BOLD),
-    )
-    .header(Row::new(vec![
-        Cell::from(Span::styled(
-            "Commit",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Author",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Date",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Age",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Created At",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-    ]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::White))
-            .title("Detail")
-            .border_type(BorderType::Plain),
-    )
-    .widths(&[
-        Constraint::Percentage(5),
-        Constraint::Percentage(20),
-        Constraint::Percentage(20),
-        Constraint::Percentage(5),
-        Constraint::Percentage(20),
-    ]);
+    let rows = commits.iter()
+            .map(|commit| {
+                Row::new(vec![
+                    Cell::from(Span::raw(commit.name.clone())),
+                    Cell::from(Span::raw(commit.category.clone())),
+                    Cell::from(Span::raw(commit.age.clone().to_string())),
+                    Cell::from(Span::raw(commit.created_at.clone().to_string())),
+                ])
+            });
 
-    (list, commit_list)
+    let commit_list = Table::new(rows)
+        .highlight_style(
+            Style::default()
+                .bg(Color::Yellow)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(
+            Block::default()
+                .borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT)
+                .style(Style::default().fg(Color::White))
+                .border_type(BorderType::Plain),
+        )
+        .widths(&[
+            Constraint::Length(20),
+            Constraint::Length(20),
+            Constraint::Length(20),
+            Constraint::Length(20),
+        ]);
+
+        (list, commit_list)
 }
 
 fn read_db() -> Result<Vec<Commit>, Error> {
