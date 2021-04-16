@@ -3,7 +3,6 @@ use crossterm::{
     event::{self, Event as CEvent, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
-use rand::{distributions::Alphanumeric, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -13,14 +12,16 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tui::{
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{
-        Block, BorderType, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, Tabs,
+        Block, BorderType, Borders, Cell, List, ListItem, ListState, Row, Table, Tabs, TableState
     },
     Terminal,
 };
+
+use git2::Repository;
 
 const DB_PATH: &str = "./data/db.json";
 
@@ -38,7 +39,7 @@ enum Event<I> {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct Pet {
+struct Commit {
     id: usize,
     name: String,
     category: String,
@@ -49,15 +50,75 @@ struct Pet {
 #[derive(Copy, Clone, Debug)]
 enum MenuItem {
     Home,
-    Pets,
 }
 
 impl From<MenuItem> for usize {
     fn from(input: MenuItem) -> usize {
         match input {
             MenuItem::Home => 0,
-            MenuItem::Pets => 1,
         }
+    }
+}
+
+pub struct StatefulTable<'a> {
+    state: TableState,
+    items: Vec<Vec<&'a str>>,
+}
+
+
+impl<'a> StatefulTable<'a> {
+    fn new() -> StatefulTable<'a> {
+        StatefulTable {
+            state: TableState::default(),
+            items: vec![
+                vec!["Row11", "Row12", "Row13"],
+                vec!["Row21", "Row22", "Row23"],
+                vec!["Row31", "Row32", "Row33"],
+                vec!["Row41", "Row42", "Row43"],
+                vec!["Row51", "Row52", "Row53"],
+                vec!["Row61", "Row62\nTest", "Row63"],
+                vec!["Row71", "Row72", "Row73"],
+                vec!["Row81", "Row82", "Row83"],
+                vec!["Row91", "Row92", "Row93"],
+                vec!["Row101", "Row102", "Row103"],
+                vec!["Row111", "Row112", "Row113"],
+                vec!["Row121", "Row122", "Row123"],
+                vec!["Row131", "Row132", "Row133"],
+                vec!["Row141", "Row142", "Row143"],
+                vec!["Row151", "Row152", "Row153"],
+                vec!["Row161", "Row162", "Row163"],
+                vec!["Row171", "Row172", "Row173"],
+                vec!["Row181", "Row182", "Row183"],
+                vec!["Row191", "Row192", "Row193"],
+            ],
+        }
+    }
+    pub fn next(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i >= self.items.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+
+    pub fn previous(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.items.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
     }
 }
 
@@ -93,10 +154,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    let menu_titles = vec!["Home", "Pets", "Add", "Delete", "Quit"];
+    let menu_titles = vec!["Home", "Change ownership", "Quit"];
     let mut active_menu_item = MenuItem::Home;
-    let mut pet_list_state = ListState::default();
-    pet_list_state.select(Some(0));
+    let mut commit_list_state = ListState::default();
+    commit_list_state.select(Some(0));
 
     loop {
         terminal.draw(|rect| {
@@ -136,17 +197,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .divider(Span::raw("|"));
 
             rect.render_widget(tabs, chunks[0]);
+
             match active_menu_item {
-                MenuItem::Home => rect.render_widget(render_commit_tree(), chunks[1]),
-                MenuItem::Pets => {
+                MenuItem::Home => {
                     let pets_chunks = Layout::default()
                         .direction(Direction::Horizontal)
                         .constraints(
-                            [Constraint::Percentage(20), Constraint::Percentage(80)].as_ref(),
+                            [Constraint::Length(15), Constraint::Min(10)].as_ref(),
                         )
                         .split(chunks[1]);
-                    let (left, right) = render_pets(&pet_list_state);
-                    rect.render_stateful_widget(left, pets_chunks[0], &mut pet_list_state);
+
+                    let (list, right) = render_commit_list(&commit_list_state);
+
+                    rect.render_stateful_widget(list, pets_chunks[0], &mut commit_list_state);
                     rect.render_widget(right, pets_chunks[1]);
                 }
             }
@@ -159,27 +222,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     terminal.show_cursor()?;
                     break;
                 }
-                KeyCode::Char('h') => active_menu_item = MenuItem::Home,
-                KeyCode::Char('p') => active_menu_item = MenuItem::Pets,
 
                 KeyCode::Down => {
-                    if let Some(selected) = pet_list_state.selected() {
+                    if let Some(selected) = commit_list_state.selected() {
                         let amount_pets = read_db().expect("can fetch pet list").len();
                         if selected >= amount_pets - 1 {
-                            pet_list_state.select(Some(0));
+                            commit_list_state.select(Some(0));
                         } else {
-                            pet_list_state.select(Some(selected + 1));
+                            commit_list_state.select(Some(selected + 1));
                         }
                     }
                 }
 
                 KeyCode::Up => {
-                    if let Some(selected) = pet_list_state.selected() {
+                    if let Some(selected) = commit_list_state.selected() {
                         let amount_pets = read_db().expect("can fetch pet list").len();
                         if selected > 0 {
-                            pet_list_state.select(Some(selected - 1));
+                            commit_list_state.select(Some(selected - 1));
                         } else {
-                            pet_list_state.select(Some(amount_pets - 1));
+                            commit_list_state.select(Some(amount_pets - 1));
                         }
                     }
                 }
@@ -193,78 +254,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn render_commit_tree<'a>() -> List<'a> {
-    // let home = Paragraph::new(vec![
-    //     Spans::from(vec![Span::raw("Thing")]),
-    // ])
-    // .block(
-    //     Block::default()
-    //         .borders(Borders::ALL)
-    //         .style(Style::default().fg(Color::White))
-    //         .title("Home")
-    //         .border_type(BorderType::Plain),
-    // );
-    let items = [ListItem::new("Item 1 >> Asdjasdh"), ListItem::new("Item 2"), ListItem::new("Item 3")];
-    let home = List::new(items)
-        .block(Block::default().title("Commit History").borders(Borders::ALL))
-        .style(Style::default().fg(Color::White))
-        .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-        .highlight_symbol(">>");
-    home
-}
 
-fn render_pets<'a>(pet_list_state: &ListState) -> (List<'a>, Table<'a>) {
-    let pets = Block::default()
+fn render_commit_list<'a>(commit_list_state: &ListState) -> (List<'a>, Table<'a>) {
+    let commit_list = Block::default()
         .borders(Borders::ALL)
         .style(Style::default().fg(Color::White))
-        .title("Pets")
+        .title("Commits")
         .border_type(BorderType::Plain);
+
+    let repo = match Repository::discover("./") {
+        Ok(repo) => repo,
+        Err(e) => panic!("failed to open: {}", e),
+    };
+
+
 
     let pet_list = read_db().expect("can fetch pet list");
     let items: Vec<_> = pet_list
         .iter()
         .map(|pet| {
-            ListItem::new(Spans::from(vec![Span::styled(
-                pet.name.clone(),
-                Style::default(),
-            )]))
+            ListItem::new(
+                Spans::from(
+                    vec![
+                        Span::styled(pet.name.clone(), Style::default())
+                    ]
+                )
+            )
         })
         .collect();
 
-    let selected_pet = pet_list
-        .get(
-            pet_list_state
-                .selected()
-                .expect("there is always a selected pet"),
-        )
+    let commits = pet_list
+        .get(commit_list_state.selected().expect("there is always a selected pet"))
         .expect("exists")
         .clone();
 
-    let list = List::new(items).block(pets).highlight_style(
+    let list = List::new(items).block(commit_list).highlight_style(
         Style::default()
             .bg(Color::Yellow)
             .fg(Color::Black)
             .add_modifier(Modifier::BOLD),
     );
 
-    let pet_detail = Table::new(vec![Row::new(vec![
-        Cell::from(Span::raw(selected_pet.id.to_string())),
-        Cell::from(Span::raw(selected_pet.name)),
-        Cell::from(Span::raw(selected_pet.category)),
-        Cell::from(Span::raw(selected_pet.age.to_string())),
-        Cell::from(Span::raw(selected_pet.created_at.to_string())),
-    ])])
+    let commit_list = Table::new(
+        vec![Row::new(vec![
+            Cell::from(Span::raw(commits.id.to_string())),
+            Cell::from(Span::raw(commits.name)),
+            Cell::from(Span::raw(commits.category)),
+            Cell::from(Span::raw(commits.age.to_string())),
+            Cell::from(Span::raw(commits.created_at.to_string())),
+        ])]
+    )
+    .highlight_style(
+        Style::default()
+            .bg(Color::Yellow)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD),
+    )
     .header(Row::new(vec![
         Cell::from(Span::styled(
-            "ID",
+            "Commit",
             Style::default().add_modifier(Modifier::BOLD),
         )),
         Cell::from(Span::styled(
-            "Name",
+            "Author",
             Style::default().add_modifier(Modifier::BOLD),
         )),
         Cell::from(Span::styled(
-            "Category",
+            "Date",
             Style::default().add_modifier(Modifier::BOLD),
         )),
         Cell::from(Span::styled(
@@ -291,12 +347,12 @@ fn render_pets<'a>(pet_list_state: &ListState) -> (List<'a>, Table<'a>) {
         Constraint::Percentage(20),
     ]);
 
-    (list, pet_detail)
+    (list, commit_list)
 }
 
-fn read_db() -> Result<Vec<Pet>, Error> {
+fn read_db() -> Result<Vec<Commit>, Error> {
     let db_content = fs::read_to_string(DB_PATH)?;
-    let parsed: Vec<Pet> = serde_json::from_str(&db_content)?;
+    let parsed: Vec<Commit> = serde_json::from_str(&db_content)?;
     Ok(parsed)
 }
 
