@@ -163,6 +163,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => panic!("failed to open: {}", e),
     };
 
+    // let repo_root = std::env::args().nth(1).unwrap_or(".".to_string());
+    // let repo = Repository::open(repo_root.as_str()).expect("Couldn't open repository");
+
+
     loop {
         terminal.draw(|rect| {
             let size = rect.size();
@@ -201,8 +205,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // .highlight_style(Style::default().fg(Color::Yellow))
                 .divider(Span::raw("|"));
 
-            let home = Paragraph::new(
-                "Hello"
+            let mut revwalk = repo.revwalk()?;
+
+            for commit in &args.arg_commit {
+
+                if commit.starts_with('^') {
+                    let obj = repo.revparse_single(&commit[1..])?;
+                    revwalk.hide(obj.id())?;
+                    continue;
+                }
+
+                let revspec = repo.revparse(commit)?;
+
+                // if revspec.mode().contains(git2::RevparseMode::SINGLE) {
+                    revwalk.push(revspec.from().unwrap().id())?;
+                // } else {
+                //     let from = revspec.from().unwrap().id();
+                //     let to = revspec.to().unwrap().id();
+                //     revwalk.push(to)?;
+                //     if revspec.mode().contains(git2::RevparseMode::MERGE_BASE) {
+                //         let base = repo.merge_base(from, to)?;
+                //         let o = repo.find_object(base, Some(ObjectType::Commit))?;
+                //         revwalk.push(o.id())?;
+                //     }
+                //     revwalk.hide(from)?;
+                // }
+            }
+
+            for commit in revwalk {
+                let commit = commit;
+                print_commit(&commit);
+                // if !args.flag_patch || commit.parents().len() > 1 {
+                //     continue;
+                // }
+                // let a = if commit.parents().len() == 1 {
+                //     let parent = commit.parent(0)?;
+                //     Some(parent.tree()?)
+                // } else {
+                //     None
+                // };
+                // let b = commit.tree()?;
+            //     let diff = repo.diff_tree_to_tree(a.as_ref(), Some(&b), Some(&mut diffopts2))?;
+            //     diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
+            //         match line.origin() {
+            //             ' ' | '+' | '-' => print!("{}", line.origin()),
+            //             _ => {}
+            //         }
+            //         print!("{}", str::from_utf8(line.content()).unwrap());
+            //         true
+            //     })?;
+            // }
+
+            let state = format!("{:#?}", repo.path().display());
+
+            let home = Paragraph::new(state
+                // "{} state={:?}"
+                // repo.path().display()
+
                 // vec![Spans::from(vec![Span::raw(repo.branches().iter().map(|branch| {branch.name}))])],
             );
             rect.render_widget(tabs, chunks[0]);
