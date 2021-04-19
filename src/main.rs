@@ -17,7 +17,7 @@ use tui::{
   style::{Color, Modifier, Style},
   text::{Span, Spans},
   widgets::{
-    Block, BorderType, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, Tabs,TableState
+    Block, BorderType, Borders, Cell, List, ListItem, ListState, Row, Table, Tabs,
   },
   Terminal,
 };
@@ -48,6 +48,13 @@ struct Commit {
   created_at: DateTime<Utc>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct CommitRow {
+  sha: String,
+  author: String,
+  author_email: String
+}
+
 #[derive(Copy, Clone, Debug)]
 enum MenuItem {
   Home,
@@ -61,14 +68,48 @@ impl From<MenuItem> for usize {
   }
 }
 
+fn interrogate_git_repository() -> (Vec<CommitRow>, Vec<String>) {
+  let mut git_log = Command::new("git");
+  git_log.arg("log");
+  git_log.arg("--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE」");
+
+  // let thing = Command::new("git").args(&["rev-parse", "HEAD"]).output().unwrap();
+  // let git_hash = String::from_utf8(thing.stdout).unwrap();
+  // println!("cargo:rustc-env=GIT_HASH={}", git_hash);
+
+  let output: String = format!("{:?}", git_log.output());
+  // println!("{:?}", output);
+
+  let rows: Vec<&str> = output.split("」\n").collect();
+  let commits: Vec<CommitRow> = rows
+    .iter()
+    .map(|row| {
+      let row_without_line_endings: String = row.replace(r#"\\n\"#, "");
+      let field: Vec<&str> = row_without_line_endings.split("‖").collect();
+
+      println!("{:?}", field);
+      return CommitRow {
+        sha: format!("{}", field[0]),
+        author: format!("{}", field[1]),
+        author_email: format!("{}", field[2]),
+      };
+    }).collect();
+
+  let shas: Vec<String> = commits
+    .iter()
+    .map(|commit| {
+      println!("{}", commit.sha);
+      return commit.sha.clone();
+    })
+    .collect();
+
+  return (commits, shas);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   enable_raw_mode().expect("can run in raw mode");
 
-  let mut echo_hello = Command::new("git");
-  echo_hello.arg("log");
-  echo_hello.arg("--pretty='%H|%h|%s|%an|&aN|%ae|&aE|%aD|%aR|%cn|%cE'");
-
-  println!("{:?}", echo_hello.output());
+  let (commits, shas) = interrogate_git_repository();
 
   let (tx, rx) = mpsc::channel();
   let tick_rate = Duration::from_millis(200);
@@ -100,121 +141,112 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   terminal.clear()?;
 
   let menu_titles = vec!["Home", "Change ownership", "Quit"];
-  let mut active_menu_item = MenuItem::Home;
-  let mut commit_list_state = ListState::default();
-  commit_list_state.select(Some(0));
+  let active_menu_item = MenuItem::Home;
+  let mut highlighted_commit = ListState::default();
+  highlighted_commit.select(Some(0));
 
-  let repo = match Repository::discover("./") {
-    Ok(repo) => repo,
-    Err(e) => panic!("failed to open: {}", e),
-  };
+  loop {
+    terminal.draw(|rect| {
+      let size = rect.size();
+      let chunks = Layout::default()
+      .direction(Direction::Vertical)
+      .constraints(
+        [
+        Constraint::Length(3),
+        Constraint::Min(2)
+        ]
+        .as_ref(),
+        )
+      .split(size);
 
-    // let repo_root = std::env::args().nth(1).unwrap_or(".".to_string());
-    // let repo = Repository::open(repo_root.as_str()).expect("Couldn't open repository");
+      let menu = menu_titles
+      .iter()
+      .map(|t| {
+        let (first, rest) = t.split_at(1);
+        Spans::from(vec![
+          Span::styled(
+            first,
+            Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::UNDERLINED),
+            ),
+          Span::styled(rest, Style::default().fg(Color::White)),
+          ])
+      })
+      .collect();
 
+      let tabs = Tabs::new(menu)
+      .select(active_menu_item.into())
+      .block(Block::default().title("Menu").borders(Borders::ALL))
+      .style(Style::default().fg(Color::White))
+        // .highlight_style(Style::default().fg(Color::Yellow))
+        .divider(Span::raw("|"));
 
-    loop {
-      terminal.draw(|rect| {
-        let size = rect.size();
-        let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-          [
-          Constraint::Length(3),
-          Constraint::Min(2)
-          ]
-          .as_ref(),
-          )
-        .split(size);
+        rect.render_widget(tabs, chunks[0]);
 
-        let menu = menu_titles
-        .iter()
-        .map(|t| {
-          let (first, rest) = t.split_at(1);
-          Spans::from(vec![
-            Span::styled(
-              first,
-              Style::default()
-              .fg(Color::Yellow)
-              .add_modifier(Modifier::UNDERLINED),
-              ),
-            Span::styled(rest, Style::default().fg(Color::White)),
-            ])
-        })
-        .collect();
+        match active_menu_item {
+          MenuItem::Home => {
+            let pets_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(
+              [Constraint::Length(15), Constraint::Min(10)].as_ref(),
+              )
+            .split(chunks[1]);
 
-        let tabs = Tabs::new(menu)
-        .select(active_menu_item.into())
-        .block(Block::default().title("Menu").borders(Borders::ALL))
-        .style(Style::default().fg(Color::White))
-                // .highlight_style(Style::default().fg(Color::Yellow))
-                .divider(Span::raw("|"));
-
-                rect.render_widget(tabs, chunks[0]);
-
-                match active_menu_item {
-                  MenuItem::Home => {
-                    let pets_chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints(
-                      [Constraint::Length(15), Constraint::Min(10)].as_ref(),
-                      )
-                    .split(chunks[1]);
-
-                    let (list, right) = render_commit_list(&commit_list_state);
-                    rect.render_stateful_widget(list, pets_chunks[0], &mut commit_list_state);
-                    rect.render_widget(right, pets_chunks[1]);
-                  }
-                }
-              })?;
-
-      match rx.recv()? {
-        Event::Input(event) => match event.code {
-          KeyCode::Char('q') => {
-            disable_raw_mode()?;
-            terminal.show_cursor()?;
-            break;
+            let (list, right) = render_commit_list(commits, shas);
+            rect.render_stateful_widget(list, pets_chunks[0], &mut highlighted_commit);
+            rect.render_widget(right, pets_chunks[1]);
           }
+        }
+      })?;
 
-          KeyCode::Esc => {
-            disable_raw_mode()?;
-            terminal.show_cursor()?;
-            break;
-          }
+    match rx.recv()? {
+      Event::Input(event) => match event.code {
+        KeyCode::Char('q') => {
+          disable_raw_mode()?;
+          terminal.show_cursor()?;
+          break;
+        }
 
-          KeyCode::Down => {
-            if let Some(selected) = commit_list_state.selected() {
-              let amount_pets = read_db().expect("can fetch pet list").len();
-              if selected >= amount_pets - 1 {
-                commit_list_state.select(Some(0));
-              } else {
-                commit_list_state.select(Some(selected + 1));
-              }
+        KeyCode::Esc => {
+          disable_raw_mode()?;
+          terminal.show_cursor()?;
+          break;
+        }
+
+        KeyCode::Down => {
+          if let Some(selected) = highlighted_commit.selected() {
+
+            if selected >= shas.len() - 1 {
+              highlighted_commit.select(Some(0));
+            } else {
+              highlighted_commit.select(Some(selected + 1));
             }
           }
+        }
 
-          KeyCode::Up => {
-            if let Some(selected) = commit_list_state.selected() {
-              let amount_pets = read_db().expect("can fetch pet list").len();
-              if selected > 0 {
-                commit_list_state.select(Some(selected - 1));
-              } else {
-                commit_list_state.select(Some(amount_pets - 1));
-              }
+        KeyCode::Up => {
+          if let Some(selected) = highlighted_commit.selected() {
+
+            if selected > 0 {
+              highlighted_commit.select(Some(selected - 1));
+            } else {
+              highlighted_commit.select(Some(shas.len() - 1));
             }
           }
-          _ => {}
-        },
+        }
+        _ => {}
+      },
 
-        Event::Tick => {}
-      }
+      Event::Tick => {}
     }
-
-    Ok(())
   }
 
+  Ok(())
+}
 
-fn render_commit_list<'a>(commit_list_state: &ListState) -> (List<'a>, Table<'a>) {
+
+fn render_commit_list<'a>(commits: Vec<CommitRow>, shas: Vec<String>) -> (List<'a>, Table<'a>) {
   let commit_list = Block::default()
   .borders(Borders::TOP | Borders::BOTTOM | Borders::LEFT)
   .style(Style::default().fg(Color::White))
@@ -222,42 +254,28 @@ fn render_commit_list<'a>(commit_list_state: &ListState) -> (List<'a>, Table<'a>
   .border_type(BorderType::Plain);
 
 
-  let pet_list = read_db().expect("can fetch pet list");
-  let items: Vec<_> = pet_list
-  .iter()
-  .map(|pet| {
-    ListItem::new(
-      Spans::from(
-        vec![
-        Span::styled(pet.name.clone(), Style::default())
-        ]
-        )
-      )
-  })
-  .collect();
+  // let commits = pet_list;
+  //     // .get(highlighted_commit.selected().expect("there is always a selected pet"))
+  //     // .expect("exists")
+  //     // .clone();
 
-  let commits = pet_list;
-      // .get(commit_list_state.selected().expect("there is always a selected pet"))
-      // .expect("exists")
-      // .clone();
-
-  let list = List::new(items)
+  let list = List::new(shas)
   .block(commit_list)
   .highlight_style(
     Style::default()
     .bg(Color::Yellow)
     .fg(Color::Black)
     .add_modifier(Modifier::BOLD),
-    );
+  );
 
   let rows = commits.iter()
   .map(|commit| {
     Row::new(vec![
-      Cell::from(Span::raw(commit.name.clone())),
-      Cell::from(Span::raw(commit.category.clone())),
-      Cell::from(Span::raw(commit.age.clone().to_string())),
-      Cell::from(Span::raw(commit.created_at.clone().to_string())),
-      ])
+      Cell::from(Span::raw(commit.sha.clone())),
+      Cell::from(Span::raw(commit.author.clone())),
+      Cell::from(Span::raw(commit.author_email.clone().to_string())),
+      Cell::from(Span::raw(commit.author_email.clone().to_string())),
+    ])
   });
 
   let commit_list = Table::new(rows)
@@ -266,19 +284,19 @@ fn render_commit_list<'a>(commit_list_state: &ListState) -> (List<'a>, Table<'a>
     .bg(Color::Yellow)
     .fg(Color::Black)
     .add_modifier(Modifier::BOLD),
-    )
+  )
   .block(
     Block::default()
     .borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT)
     .style(Style::default().fg(Color::White))
     .border_type(BorderType::Plain),
-    )
+  )
   .widths(&[
     Constraint::Length(20),
     Constraint::Length(20),
     Constraint::Length(20),
     Constraint::Length(20),
-    ]);
+  ]);
 
   (list, commit_list)
 }
