@@ -75,15 +75,22 @@ impl From<MenuItem> for usize {
   }
 }
 
-fn extract_email(input: &str) -> String {
+fn extract_name(input: &str) -> String {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"(?x)
-            ^(?P<login>[^@\s]+)@
-            ([[:word:]]+\.)*
-            [[:word:]]+$
-            ").unwrap();
+      static ref RE: Regex = Regex::new(r"^Co-authored-by: (.+) <").unwrap();
     }
-    RE.find_iter(input).map(|mat| mat.as_str()).collect()
+  let cap = RE.captures(input).unwrap();
+  println!("{:?}", cap);
+  format!("{}", &cap[1])
+}
+
+fn extract_email(input: &str) -> String {
+  lazy_static! {
+    static ref RE: Regex = Regex::new(r"<(.*)>").unwrap();
+  }
+  let cap = RE.captures(input).unwrap();
+
+  format!("{}", &cap[1])
 }
 
 fn interrogate_git_repository() -> Vec<CommitRow> {
@@ -96,13 +103,23 @@ fn interrogate_git_repository() -> Vec<CommitRow> {
     .iter()
     .map(|row| {
       let field: Vec<&str> = row.split("‖").collect();
-      let co_authors = field[7].split(">\n")
+
+
+      let cos: Vec<String> = field[7].split("\n")
         .filter(|&i| i != "")
         .map(|co_author| {
-          let email = extract_email(co_author);
+          extract_name(co_author)
+        })
+        .collect();
+
+      println!("{:?}", cos);
+
+      let co_authors = field[7].split("\n")
+        .filter(|&i| i != "")
+        .map(|co_author| {
           Author {
-            name: format!("{}", "name"),
-            email: email,
+            name: extract_name(co_author),
+            email: extract_email(co_author),
           }
         })
         .collect();
