@@ -94,7 +94,7 @@ fn extract_email(input: &str) -> String {
 }
 
 fn interrogate_git_repository() -> Vec<CommitRow> {
-  let output: String = simple_run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」"], "");
+  let output: String = simple_run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」", "--max-count=100"], "");
   //let test: String = simple_run_command::run("/bin/sh", &["-c", r#"echo test "something in quotes" "#], "");
   let tidied_output: String = output.replace(r"」\n$", "");
   let mut rows: Vec<&str> = tidied_output.split("」\n").collect();
