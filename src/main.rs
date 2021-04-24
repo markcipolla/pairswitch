@@ -1,14 +1,16 @@
+
+
 use chrono::prelude::*;
 use crossterm::{
   event::{self, Event as CEvent, KeyCode},
   terminal::{disable_raw_mode, enable_raw_mode},
 };
 use serde::{Deserialize, Serialize};
-use std::fs;
+
 use std::io;
 use std::sync::mpsc;
 use std::thread;
-use std::process::Command;
+
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tui::{
@@ -21,10 +23,6 @@ use tui::{
   },
   Terminal,
 };
-
-use git2::Repository;
-
-const DB_PATH: &str = "./data/db.json";
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -68,48 +66,81 @@ impl From<MenuItem> for usize {
   }
 }
 
-fn interrogate_git_repository() -> (Vec<CommitRow>, Vec<String>) {
-  let mut git_log = Command::new("git");
-  git_log.arg("log");
-  git_log.arg("--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE」");
-
-  // let thing = Command::new("git").args(&["rev-parse", "HEAD"]).output().unwrap();
-  // let git_hash = String::from_utf8(thing.stdout).unwrap();
-  // println!("cargo:rustc-env=GIT_HASH={}", git_hash);
-
-  let output: String = format!("{:?}", git_log.output());
-  // println!("{:?}", output);
-
-  let rows: Vec<&str> = output.split("」\n").collect();
+fn interrogate_git_repository() -> Vec<CommitRow> {
+  let output: String = simple_run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」"], "");
+  //let test: String = simple_run_command::run("/bin/sh", &["-c", r#"echo test "something in quotes" "#], "");
+  let tidied_output: String = output.replace(r"」\n$", "");
+  println!("{:?}", tidied_output);
+  let mut rows: Vec<&str> = tidied_output.split("」\n").collect();
+  println!("{:?}", rows);
+  rows = rows.into_iter().filter(|&i| i != "").collect::<Vec<_>>();
   let commits: Vec<CommitRow> = rows
     .iter()
     .map(|row| {
-      let row_without_line_endings: String = row.replace(r#"\\n\"#, "");
-      let field: Vec<&str> = row_without_line_endings.split("‖").collect();
 
+      // println!("{:?}", row);
+      let field: Vec<&str> = row.split("‖").collect();
       println!("{:?}", field);
-      return CommitRow {
+      let commit_row = CommitRow {
         sha: format!("{}", field[0]),
         author: format!("{}", field[1]),
         author_email: format!("{}", field[2]),
       };
+      return commit_row;
     }).collect();
+  return commits;
+}
 
-  let shas: Vec<String> = commits
-    .iter()
-    .map(|commit| {
-      println!("{}", commit.sha);
-      return commit.sha.clone();
-    })
-    .collect();
 
-  return (commits, shas);
+mod simple_run_command {
+    use std::process::{Command, Stdio};
+    use std::str;
+    use std::io::Write;
+    use std::{thread, time};
+
+
+    #[allow(unused)]
+    pub fn run_basic(program:&str) -> String {
+        let arguments: &[&str] = &[];
+        let std_in_string: &str = "";
+        run(program,arguments,std_in_string)
+     }
+
+    pub fn run(program:&str,arguments:&[&str],std_in_string:&str) -> String {
+        let mut child = Command::new(program)
+            .args(arguments)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("failed to execute child");
+        {
+            let stdin = child.stdin.as_mut().expect("Failed to get stdin");
+            stdin.write_all(std_in_string.as_bytes()).expect("Failed to write to stdin");
+        }
+        let check_every = time::Duration::from_millis(10);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_status)) => {break;},  // finished running
+                Ok(None) => {}                  // still running
+                Err(e) => {panic!("error attempting to wait: {}", e)},
+            }
+            thread::sleep(check_every);
+        }
+        let output = child
+            .wait_with_output()
+            .expect("failed to wait on child");
+        let final_output: String = match str::from_utf8(&output.stdout){
+            Ok(output) => {output.to_string()},
+            Err(e) => {panic!("{}", e);},
+        };
+        final_output
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   enable_raw_mode().expect("can run in raw mode");
 
-  let (commits, shas) = interrogate_git_repository();
+  let commits: Vec<CommitRow> = interrogate_git_repository();
 
   let (tx, rx) = mpsc::channel();
   let tick_rate = Duration::from_millis(200);
@@ -138,12 +169,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let stdout = io::stdout();
   let backend = CrosstermBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
-  terminal.clear()?;
+  // terminal.clear()?;
 
   let menu_titles = vec!["Home", "Change ownership", "Quit"];
   let active_menu_item = MenuItem::Home;
   let mut highlighted_commit = ListState::default();
   highlighted_commit.select(Some(0));
+
 
   loop {
     terminal.draw(|rect| {
@@ -193,7 +225,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
               )
             .split(chunks[1]);
 
-            let (list, right) = render_commit_list(commits, shas);
+            let (list, right) = render_commit_list(commits.clone());
             rect.render_stateful_widget(list, pets_chunks[0], &mut highlighted_commit);
             rect.render_widget(right, pets_chunks[1]);
           }
@@ -217,7 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         KeyCode::Down => {
           if let Some(selected) = highlighted_commit.selected() {
 
-            if selected >= shas.len() - 1 {
+            if selected >= commits.len() - 1 {
               highlighted_commit.select(Some(0));
             } else {
               highlighted_commit.select(Some(selected + 1));
@@ -231,7 +263,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if selected > 0 {
               highlighted_commit.select(Some(selected - 1));
             } else {
-              highlighted_commit.select(Some(shas.len() - 1));
+              highlighted_commit.select(Some(commits.len() - 1));
             }
           }
         }
@@ -246,20 +278,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 
-fn render_commit_list<'a>(commits: Vec<CommitRow>, shas: Vec<String>) -> (List<'a>, Table<'a>) {
+fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
   let commit_list = Block::default()
-  .borders(Borders::TOP | Borders::BOTTOM | Borders::LEFT)
-  .style(Style::default().fg(Color::White))
-  .title("Commits")
-  .border_type(BorderType::Plain);
+    .borders(Borders::TOP | Borders::BOTTOM | Borders::LEFT)
+    .style(Style::default().fg(Color::White))
+    .title("Commits")
+    .border_type(BorderType::Plain);
 
+  let items: Vec<_> = commits
+    .iter()
+    .map(|commit| {
+      ListItem::new(
+        Spans::from(
+          vec![
+          Span::styled(commit.sha.clone(), Style::default())
+          ]
+          )
+        )
+    })
+    .collect();
 
-  // let commits = pet_list;
-  //     // .get(highlighted_commit.selected().expect("there is always a selected pet"))
-  //     // .expect("exists")
-  //     // .clone();
-
-  let list = List::new(shas)
+  let list = List::new(items)
   .block(commit_list)
   .highlight_style(
     Style::default()
@@ -270,11 +309,11 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>, shas: Vec<String>) -> (List<'
 
   let rows = commits.iter()
   .map(|commit| {
+    let commit = commit.clone();
     Row::new(vec![
-      Cell::from(Span::raw(commit.sha.clone())),
-      Cell::from(Span::raw(commit.author.clone())),
-      Cell::from(Span::raw(commit.author_email.clone().to_string())),
-      Cell::from(Span::raw(commit.author_email.clone().to_string())),
+      Cell::from(Span::raw(String::from(commit.sha))),
+      Cell::from(Span::raw(String::from(commit.author))),
+      Cell::from(Span::raw(String::from(commit.author_email))),
     ])
   });
 
@@ -300,11 +339,3 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>, shas: Vec<String>) -> (List<'
 
   (list, commit_list)
 }
-
-fn read_db() -> Result<Vec<Commit>, Error> {
-  let db_content = fs::read_to_string(DB_PATH)?;
-  let parsed: Vec<Commit> = serde_json::from_str(&db_content)?;
-  Ok(parsed)
-}
-
-
