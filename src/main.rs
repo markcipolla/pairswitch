@@ -19,7 +19,7 @@ use tui::{
   style::{Color, Modifier, Style},
   text::{Span, Spans},
   widgets::{
-    Block, BorderType, Borders, Cell, List, ListItem, ListState, Row, Table, Tabs,
+    Block, BorderType, Borders, List, ListItem, ListState, Row, Table, Tabs,
   },
   Terminal,
 };
@@ -94,8 +94,8 @@ fn extract_email(input: &str) -> String {
 }
 
 fn interrogate_git_repository() -> Vec<CommitRow> {
-  let output: String = simple_run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」", "--max-count=100"], "");
-  //let test: String = simple_run_command::run("/bin/sh", &["-c", r#"echo test "something in quotes" "#], "");
+  let output: String = run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」", "--max-count=100"], "");
+
   let tidied_output: String = output.replace(r"」\n$", "");
   let mut rows: Vec<&str> = tidied_output.split("」\n").collect();
   rows = rows.into_iter().filter(|&i| i != "").collect::<Vec<_>>();
@@ -103,16 +103,6 @@ fn interrogate_git_repository() -> Vec<CommitRow> {
     .iter()
     .map(|row| {
       let field: Vec<&str> = row.split("‖").collect();
-
-
-      let cos: Vec<String> = field[7].split("\n")
-        .filter(|&i| i != "")
-        .map(|co_author| {
-          extract_name(co_author)
-        })
-        .collect();
-
-      println!("{:?}", cos);
 
       let co_authors = field[7].split("\n")
         .filter(|&i| i != "")
@@ -143,50 +133,53 @@ fn interrogate_git_repository() -> Vec<CommitRow> {
   return commits;
 }
 
+mod run_command {
+  use std::process::{Command, Stdio};
+  use std::str;
+  use std::io::Write;
+  use std::{thread, time};
 
-mod simple_run_command {
-    use std::process::{Command, Stdio};
-    use std::str;
-    use std::io::Write;
-    use std::{thread, time};
+  #[allow(unused)]
+  pub fn run_basic(program:&str) -> String {
+    let arguments: &[&str] = &[];
+    let std_in_string: &str = "";
+    run(program,arguments,std_in_string)
+   }
 
+  pub fn run(program:&str,arguments:&[&str],std_in_string:&str) -> String {
+    let mut child = Command::new(program)
+      .args(arguments)
+      .stdin(Stdio::piped())
+      .stdout(Stdio::piped())
+      .spawn()
+      .expect("failed to execute child");
 
-    #[allow(unused)]
-    pub fn run_basic(program:&str) -> String {
-        let arguments: &[&str] = &[];
-        let std_in_string: &str = "";
-        run(program,arguments,std_in_string)
-     }
-
-    pub fn run(program:&str,arguments:&[&str],std_in_string:&str) -> String {
-        let mut child = Command::new(program)
-            .args(arguments)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("failed to execute child");
-        {
-            let stdin = child.stdin.as_mut().expect("Failed to get stdin");
-            stdin.write_all(std_in_string.as_bytes()).expect("Failed to write to stdin");
-        }
-        let check_every = time::Duration::from_millis(10);
-        loop {
-            match child.try_wait() {
-                Ok(Some(_status)) => {break;},  // finished running
-                Ok(None) => {}                  // still running
-                Err(e) => {panic!("error attempting to wait: {}", e)},
-            }
-            thread::sleep(check_every);
-        }
-        let output = child
-            .wait_with_output()
-            .expect("failed to wait on child");
-        let final_output: String = match str::from_utf8(&output.stdout){
-            Ok(output) => {output.to_string()},
-            Err(e) => {panic!("{}", e);},
-        };
-        final_output
+    {
+      let stdin = child.stdin.as_mut().expect("Failed to get stdin");
+      stdin.write_all(std_in_string.as_bytes()).expect("Failed to write to stdin");
     }
+
+    let check_every = time::Duration::from_millis(10);
+    loop {
+      match child.try_wait() {
+        Ok(Some(_status)) => {break;},  // finished running
+        Ok(None) => {}                  // still running
+        Err(e) => {panic!("error attempting to wait: {}", e)},
+      }
+      thread::sleep(check_every);
+    }
+
+    let output = child
+      .wait_with_output()
+      .expect("failed to wait on child");
+
+    let final_output: String = match str::from_utf8(&output.stdout){
+      Ok(output) => {output.to_string()},
+      Err(e) => {panic!("{}", e);},
+    };
+
+    final_output
+  }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -221,7 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let stdout = io::stdout();
   let backend = CrosstermBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
-  // terminal.clear()?;
+  terminal.clear()?;
 
   let menu_titles = vec!["Home", "Change ownership", "Quit"];
   let active_menu_item = MenuItem::Home;
@@ -236,8 +229,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .direction(Direction::Vertical)
         .constraints(
           [
-            Constraint::Length(3),
-            Constraint::Min(2)
+            Constraint::Min(2),
+            Constraint::Length(1),
           ]
           .as_ref(),
         )
@@ -261,22 +254,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
       let tabs = Tabs::new(menu)
         .select(active_menu_item.into())
-        .block(Block::default().title("Menu").borders(Borders::ALL))
         .style(Style::default().fg(Color::White))
         .divider(Span::raw("|"));
 
-      rect.render_widget(tabs, chunks[0]);
+      rect.render_widget(tabs, chunks[1]);
 
       match active_menu_item {
         MenuItem::Home => {
           let pets_chunks = Layout::default()
-          .direction(Direction::Horizontal)
-          .constraints(
-            [Constraint::Length(9), Constraint::Min(10)].as_ref(),
-            )
-          .split(chunks[1]);
+            .direction(Direction::Horizontal)
+            .constraints(
+              [Constraint::Length(9), Constraint::Min(10)].as_ref(),
+              )
+            .split(chunks[0]);
 
           let (list, right) = render_commit_list(commits.clone());
+
           rect.render_stateful_widget(list, pets_chunks[0], &mut highlighted_commit);
           rect.render_widget(right, pets_chunks[1]);
         }
@@ -287,19 +280,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       Event::Input(event) => match event.code {
         KeyCode::Char('q') => {
           disable_raw_mode()?;
+          terminal.clear()?;
           terminal.show_cursor()?;
           break;
         }
 
         KeyCode::Esc => {
           disable_raw_mode()?;
+          terminal.clear()?;
           terminal.show_cursor()?;
           break;
         }
 
         KeyCode::Down => {
           if let Some(selected) = highlighted_commit.selected() {
-
             if selected >= commits.len() - 1 {
               highlighted_commit.select(Some(0));
             } else {
@@ -310,7 +304,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         KeyCode::Up => {
           if let Some(selected) = highlighted_commit.selected() {
-
             if selected > 0 {
               highlighted_commit.select(Some(selected - 1));
             } else {
@@ -342,7 +335,7 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
       ListItem::new(
         Spans::from(
           vec![
-            Span::styled(commit.short_sha.clone(), Style::default())
+            Span::styled(commit.short_sha.clone(), Style::default()),
           ]
         )
       )
@@ -350,22 +343,22 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
     .collect();
 
   let list = List::new(items)
-  .block(sha_list)
-  .highlight_style(
-    Style::default()
-    .bg(Color::Yellow)
-    .fg(Color::Black)
-    .add_modifier(Modifier::BOLD),
-  );
+    .block(sha_list)
+    .highlight_style(
+      Style::default()
+      .bg(Color::Yellow)
+      .fg(Color::Black)
+      .add_modifier(Modifier::BOLD),
+    );
 
   let rows = commits.iter()
     .map(|commit| {
       let commit = commit.clone();
       let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
       Row::new(vec![
-        Cell::from(Span::raw(String::from(commit.description))),
-        Cell::from(Span::raw(String::from(commit.author.name))),
-        Cell::from(Span::raw(String::from(co_authors.join(", ")))),
+        commit.description,
+        commit.author.name,
+        co_authors.join(", "),
       ])
     });
 
@@ -382,12 +375,8 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
       .style(Style::default().fg(Color::White))
       .border_type(BorderType::Plain),
     )
-    .widths(&[
-      Constraint::Length(20),
-      Constraint::Min(20),
-      Constraint::Min(20),
-
-    ]);
+    .column_spacing(1)
+    .widths(&[Constraint::Percentage(50), Constraint::Percentage(25), Constraint::Percentage(25)]);
 
   (list, commit_list)
 }
