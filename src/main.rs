@@ -1,6 +1,7 @@
 use regex::Regex;
 use lazy_static::lazy_static;
 use chrono::prelude::*;
+
 use crossterm::{
   event::{self, Event as CEvent, KeyCode},
   terminal::{disable_raw_mode, enable_raw_mode},
@@ -19,10 +20,53 @@ use tui::{
   style::{Color, Modifier, Style},
   text::{Span, Spans},
   widgets::{
-    Block, BorderType, Borders, List, ListItem, ListState, Row, Table, Tabs,
+    Block, Borders, Cell, ListState, Row, Table, TableState, Tabs,
   },
   Terminal,
 };
+
+pub struct StatefulTable {
+  state: TableState,
+  commits: Vec<CommitRow>,
+}
+
+impl<'a> StatefulTable {
+  fn new(commits: Vec<CommitRow>) -> StatefulTable {
+    StatefulTable {
+      state: TableState::default(),
+      commits: commits
+    }
+  }
+
+  pub fn next(&mut self) {
+    let i = match self.state.selected() {
+      Some(i) => {
+        if i >= self.commits.len() - 1 {
+          0
+        } else {
+          i + 1
+        }
+      }
+      None => 0,
+    };
+    self.state.select(Some(i));
+  }
+
+  pub fn previous(&mut self) {
+    let i = match self.state.selected() {
+      Some(i) => {
+        if i == 0 {
+          self.commits.len() - 1
+        } else {
+          i - 1
+        }
+      }
+      None => 0,
+    };
+    self.state.select(Some(i));
+  }
+}
+
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -56,7 +100,7 @@ struct Author {
 struct CommitRow {
   sha: String,
   short_sha: String,
-  description: String,
+  subject: String,
   author: Author,
   contributor: Author,
   co_authors: Vec<Author>,
@@ -117,7 +161,7 @@ fn interrogate_git_repository() -> Vec<CommitRow> {
       let commit_row = CommitRow {
         sha: format!("{}", field[0]),
         short_sha: format!("{}", field[1]),
-        description: format!("{}", field[2]),
+        subject: format!("{}", field[2]),
         author: Author {
           name: format!("{}", field[3]),
           email: format!("{}", field[4]),
@@ -183,9 +227,12 @@ mod run_command {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+  let commit_rows: Vec<CommitRow> = interrogate_git_repository();
+  let mut table = StatefulTable::new(commit_rows.clone());
+
   enable_raw_mode().expect("can run in raw mode");
 
-  let commits: Vec<CommitRow> = interrogate_git_repository();
+
 
   let (tx, rx) = mpsc::channel();
   let tick_rate = Duration::from_millis(200);
@@ -258,32 +305,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
       rect.render_widget(tabs, chunks[1]);
 
-      match active_menu_item {
-        MenuItem::Home => {
-          let sha_list: Vec<_> = commits
-            .iter()
-            .map(|commit| {
-              commit.short_sha.clone().len()
-            })
-            .collect();
+      let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+      let normal_style = Style::default().bg(Color::Blue);
+      let header_cells = ["SHA", "Subject", "Author", "Co-Authors"]
+          .iter()
+          .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
+      let header = Row::new(header_cells)
+          .style(normal_style)
+          .height(1)
+          .bottom_margin(1);
 
-          let sha_char_length = sha_list.iter().max().unwrap();
+      let rows = commit_rows.iter()
+        .map(|commit| {
+          let commit = commit.clone();
+          let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
 
-          let row_length = *sha_char_length as u16 + 2;
-          let commit_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(
-              [Constraint::Length(row_length), Constraint::Min(10)].as_ref(),
-              )
-            .split(chunks[0]);
+          Row::new(vec![
+            commit.short_sha,
+            commit.subject,
+            commit.author.name,
+            co_authors.join(", "),
+          ])
+        });
 
-          let (list, right) = render_commit_list(commits.clone());
+      let t = Table::new(rows)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).title("Commits"))
+        .highlight_style(selected_style)
+        .highlight_symbol(">")
+        .widths(&[
+          Constraint::Length(10),
+          Constraint::Min(30),
+          Constraint::Min(10),
+          Constraint::Min(10),
+        ]);
 
-          rect.render_stateful_widget(list, commit_chunks[0], &mut highlighted_commit);
-          rect.render_widget(right, commit_chunks[1]);
-        }
-      }
-    })?;
+        rect.render_stateful_widget(t, chunks[0], &mut table.state);
+  })?;
+
+
 
     match rx.recv()? {
       Event::Input(event) => match event.code {
@@ -302,23 +362,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         KeyCode::Down => {
-          if let Some(selected) = highlighted_commit.selected() {
-            if selected >= commits.len() - 1 {
-              highlighted_commit.select(Some(0));
-            } else {
-              highlighted_commit.select(Some(selected + 1));
-            }
-          }
+          table.next();
         }
 
         KeyCode::Up => {
-          if let Some(selected) = highlighted_commit.selected() {
-            if selected > 0 {
-              highlighted_commit.select(Some(selected - 1));
-            } else {
-              highlighted_commit.select(Some(commits.len() - 1));
-            }
-          }
+          table.previous();
         }
         _ => {}
       },
@@ -328,65 +376,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
 
   Ok(())
-}
-
-
-fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
-  let sha_list = Block::default()
-    .borders(Borders::TOP | Borders::BOTTOM | Borders::LEFT)
-    .style(Style::default().fg(Color::White))
-    .title("Commits")
-    .border_type(BorderType::Plain);
-
-  let items: Vec<_> = commits
-    .iter()
-    .map(|commit| {
-      // println!("{:?}", commit.short_sha.clone());
-      ListItem::new(
-        Spans::from(
-          vec![
-            Span::styled(commit.short_sha.clone(), Style::default()),
-          ]
-        )
-      )
-    })
-    .collect();
-
-  let list = List::new(items)
-    .block(sha_list)
-    .highlight_style(
-      Style::default()
-      .bg(Color::Yellow)
-      .fg(Color::Black)
-      .add_modifier(Modifier::BOLD),
-    );
-
-  let rows = commits.iter()
-    .map(|commit| {
-      let commit = commit.clone();
-      let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
-      Row::new(vec![
-        commit.description,
-        commit.author.name,
-        co_authors.join(", "),
-      ])
-    });
-
-  let commit_list = Table::new(rows)
-    .highlight_style(
-      Style::default()
-      .bg(Color::Yellow)
-      .fg(Color::Black)
-      .add_modifier(Modifier::BOLD),
-    )
-    .block(
-      Block::default()
-      .borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT)
-      .style(Style::default().fg(Color::White))
-      .border_type(BorderType::Plain),
-    )
-    .column_spacing(1)
-    .widths(&[Constraint::Percentage(50), Constraint::Percentage(25), Constraint::Percentage(25)]);
-
-  (list, commit_list)
 }
