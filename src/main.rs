@@ -80,7 +80,7 @@ fn extract_name(input: &str) -> String {
       static ref RE: Regex = Regex::new(r"^Co-authored-by: (.+) <").unwrap();
     }
   let cap = RE.captures(input).unwrap();
-  println!("{:?}", cap);
+
   format!("{}", &cap[1])
 }
 
@@ -221,7 +221,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut highlighted_commit = ListState::default();
   highlighted_commit.select(Some(0));
 
-
   loop {
     terminal.draw(|rect| {
       let size = rect.size();
@@ -261,17 +260,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
       match active_menu_item {
         MenuItem::Home => {
-          let pets_chunks = Layout::default()
+          let sha_list: Vec<_> = commits
+            .iter()
+            .map(|commit| {
+              commit.short_sha.clone().len()
+            })
+            .collect();
+
+          let sha_char_length = sha_list.iter().max().unwrap();
+
+          let row_length = *sha_char_length as u16 + 2;
+          let commit_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(
-              [Constraint::Length(9), Constraint::Min(10)].as_ref(),
+              [Constraint::Length(row_length), Constraint::Min(10)].as_ref(),
               )
             .split(chunks[0]);
 
           let (list, right) = render_commit_list(commits.clone());
 
-          rect.render_stateful_widget(list, pets_chunks[0], &mut highlighted_commit);
-          rect.render_widget(right, pets_chunks[1]);
+          rect.render_stateful_widget(list, commit_chunks[0], &mut highlighted_commit);
+          rect.render_widget(right, commit_chunks[1]);
         }
       }
     })?;
@@ -332,6 +341,7 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
   let items: Vec<_> = commits
     .iter()
     .map(|commit| {
+      // println!("{:?}", commit.short_sha.clone());
       ListItem::new(
         Spans::from(
           vec![
