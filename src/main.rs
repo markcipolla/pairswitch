@@ -23,7 +23,7 @@ use tui::{
   style::{Color, Modifier, Style},
   text::{Span, Spans},
   widgets::{
-    Block, Borders, Cell, ListState, Row, Table, TableState, Tabs,
+    Block, Borders, Cell, Row, Table, TableState, Tabs,
   },
   Terminal,
 };
@@ -264,10 +264,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut terminal = Terminal::new(backend)?;
   terminal.clear()?;
 
-  let menu_titles = vec!["Home", "Change ownership", "Quit"];
+  let menu_titles = vec!["Change author", "Add pair", "Quit"];
   let active_menu_item = MenuItem::Home;
-  let mut highlighted_commit = ListState::default();
-  highlighted_commit.select(Some(0));
 
   loop {
     terminal.draw(|rect| {
@@ -306,11 +304,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
       rect.render_widget(tabs, chunks[1]);
 
-      let selected_style = Style::default().add_modifier(Modifier::REVERSED);
-      let normal_style = Style::default().bg(Color::Blue);
+      let tablestyle = Style::default().
+        bg(Color::Black).
+        fg(Color::Gray);
+
+
+      let selected_style = Style::default()
+        .bg(Color::Rgb(40, 40, 40))
+        .fg(Color::Gray);
+
+
+      let normal_style = Style::default().
+        add_modifier(Modifier::BOLD).
+        add_modifier(Modifier::SLOW_BLINK).
+        add_modifier(Modifier::UNDERLINED).
+        fg(Color::Gray).
+        bg(Color::Blue);
+
+
       let header_cells = ["SHA", "Subject", "Author and co-authors"]
         .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::White)));
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Gray)));
+
       let header = Row::new(header_cells)
         .style(normal_style)
         .height(1);
@@ -338,7 +353,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .block(Block::default().borders(Borders::ALL).title("Commits"))
         .highlight_style(selected_style)
         .highlight_symbol("➡️  ")
-        .widths(&[Length(10), Percentage(50), Percentage(50)]);
+        .widths(&[Length(10), Percentage(50), Percentage(50)])
+        .style(tablestyle);
 
         rect.render_stateful_widget(t, chunks[0], &mut table.state);
     })?;
