@@ -1,3 +1,6 @@
+use tui::layout::Constraint::Length;
+use tui::layout::Constraint::Percentage;
+
 use regex::Regex;
 use lazy_static::lazy_static;
 use chrono::prelude::*;
@@ -138,7 +141,7 @@ fn extract_email(input: &str) -> String {
 }
 
 fn interrogate_git_repository() -> Vec<CommitRow> {
-  let output: String = run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」", "--max-count=100"], "");
+  let output: String = run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」", "--max-count=200"], "");
 
   let tidied_output: String = output.replace(r"」\n$", "");
   let mut rows: Vec<&str> = tidied_output.split("」\n").collect();
@@ -232,8 +235,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   enable_raw_mode().expect("can run in raw mode");
 
-
-
   let (tx, rx) = mpsc::channel();
   let tick_rate = Duration::from_millis(200);
 
@@ -307,43 +308,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
       let selected_style = Style::default().add_modifier(Modifier::REVERSED);
       let normal_style = Style::default().bg(Color::Blue);
-      let header_cells = ["SHA", "Subject", "Author", "Co-Authors"]
-          .iter()
-          .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
+      let header_cells = ["SHA", "Subject", "Author and co-authors"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::White)));
       let header = Row::new(header_cells)
-          .style(normal_style)
-          .height(1)
-          .bottom_margin(1);
+        .style(normal_style)
+        .height(1);
 
       let rows = commit_rows.iter()
         .map(|commit| {
           let commit = commit.clone();
           let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
 
-          Row::new(vec![
-            commit.short_sha,
-            commit.subject,
-            commit.author.name,
-            co_authors.join(", "),
-          ])
-        });
+        let author_list: String = if co_authors.len() > 0 {
+          format!("{}, {}", commit.author.name, co_authors.join(", "))
+        } else {
+          format!("{}", commit.author.name)
+        };
+
+        Row::new(vec![
+          commit.short_sha,
+          commit.subject,
+          author_list.to_string(),
+        ])
+      });
 
       let t = Table::new(rows)
         .header(header)
         .block(Block::default().borders(Borders::ALL).title("Commits"))
         .highlight_style(selected_style)
-        .highlight_symbol(">")
-        .widths(&[
-          Constraint::Length(10),
-          Constraint::Min(30),
-          Constraint::Min(10),
-          Constraint::Min(10),
-        ]);
+        .highlight_symbol("➡️  ")
+        .widths(&[Length(10), Percentage(50), Percentage(50)]);
 
         rect.render_stateful_widget(t, chunks[0], &mut table.state);
-  })?;
-
-
+    })?;
 
     match rx.recv()? {
       Event::Input(event) => match event.code {
@@ -368,6 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         KeyCode::Up => {
           table.previous();
         }
+
         _ => {}
       },
 
