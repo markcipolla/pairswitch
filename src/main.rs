@@ -1,5 +1,5 @@
-
-
+use regex::Regex;
+use lazy_static::lazy_static;
 use chrono::prelude::*;
 use crossterm::{
   event::{self, Event as CEvent, KeyCode},
@@ -75,32 +75,38 @@ impl From<MenuItem> for usize {
   }
 }
 
+fn extract_email(input: &str) -> String {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"(?x)
+            ^(?P<login>[^@\s]+)@
+            ([[:word:]]+\.)*
+            [[:word:]]+$
+            ").unwrap();
+    }
+    RE.find_iter(input).map(|mat| mat.as_str()).collect()
+}
+
 fn interrogate_git_repository() -> Vec<CommitRow> {
   let output: String = simple_run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」"], "");
   //let test: String = simple_run_command::run("/bin/sh", &["-c", r#"echo test "something in quotes" "#], "");
   let tidied_output: String = output.replace(r"」\n$", "");
-  println!("{:?}", tidied_output);
   let mut rows: Vec<&str> = tidied_output.split("」\n").collect();
-  println!("{:?}", rows);
   rows = rows.into_iter().filter(|&i| i != "").collect::<Vec<_>>();
   let commits: Vec<CommitRow> = rows
     .iter()
     .map(|row| {
-
-      // println!("{:?}", row);
       let field: Vec<&str> = row.split("‖").collect();
-
-      let mut co_authors = field[7].split(">Co-authored-by:")
+      let co_authors = field[7].split(">\n")
+        .filter(|&i| i != "")
         .map(|co_author| {
-          println!("{:?}", co_author);
+          let email = extract_email(co_author);
           Author {
-            name: format!("{}", "Name"),
-            email: format!("{}", "Email"),
+            name: format!("{}", "name"),
+            email: email,
           }
         })
         .collect();
 
-      println!("{:?}", field);
       let commit_row = CommitRow {
         sha: format!("{}", field[0]),
         short_sha: format!("{}", field[1]),
