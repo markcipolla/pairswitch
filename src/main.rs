@@ -47,10 +47,19 @@ struct Commit {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+struct Author {
+  name: String,
+  email: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct CommitRow {
   sha: String,
-  author: String,
-  author_email: String
+  short_sha: String,
+  description: String,
+  author: Author,
+  contributor: Author,
+  co_authors: Vec<Author>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -80,11 +89,31 @@ fn interrogate_git_repository() -> Vec<CommitRow> {
 
       // println!("{:?}", row);
       let field: Vec<&str> = row.split("‖").collect();
+
+      let mut co_authors = field[7].split(">Co-authored-by:")
+        .map(|co_author| {
+          println!("{:?}", co_author);
+          Author {
+            name: format!("{}", "Name"),
+            email: format!("{}", "Email"),
+          }
+        })
+        .collect();
+
       println!("{:?}", field);
       let commit_row = CommitRow {
         sha: format!("{}", field[0]),
-        author: format!("{}", field[1]),
-        author_email: format!("{}", field[2]),
+        short_sha: format!("{}", field[1]),
+        description: format!("{}", field[2]),
+        author: Author {
+          name: format!("{}", field[3]),
+          email: format!("{}", field[4]),
+        },
+        contributor: Author {
+          name: format!("{}", field[5]),
+          email: format!("{}", field[6]),
+        },
+        co_authors: co_authors
       };
       return commit_row;
     }).collect();
@@ -181,56 +210,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.draw(|rect| {
       let size = rect.size();
       let chunks = Layout::default()
-      .direction(Direction::Vertical)
-      .constraints(
-        [
-        Constraint::Length(3),
-        Constraint::Min(2)
-        ]
-        .as_ref(),
+        .direction(Direction::Vertical)
+        .constraints(
+          [
+            Constraint::Length(3),
+            Constraint::Min(2)
+          ]
+          .as_ref(),
         )
-      .split(size);
+        .split(size);
 
       let menu = menu_titles
-      .iter()
-      .map(|t| {
-        let (first, rest) = t.split_at(1);
-        Spans::from(vec![
-          Span::styled(
-            first,
-            Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::UNDERLINED),
-            ),
-          Span::styled(rest, Style::default().fg(Color::White)),
-          ])
-      })
-      .collect();
+        .iter()
+        .map(|t| {
+          let (first, rest) = t.split_at(1);
+          Spans::from(vec![
+            Span::styled(
+              first,
+              Style::default()
+              .fg(Color::Yellow)
+              .add_modifier(Modifier::UNDERLINED),
+              ),
+            Span::styled(rest, Style::default().fg(Color::White)),
+            ])
+        })
+        .collect();
 
       let tabs = Tabs::new(menu)
-      .select(active_menu_item.into())
-      .block(Block::default().title("Menu").borders(Borders::ALL))
-      .style(Style::default().fg(Color::White))
-        // .highlight_style(Style::default().fg(Color::Yellow))
+        .select(active_menu_item.into())
+        .block(Block::default().title("Menu").borders(Borders::ALL))
+        .style(Style::default().fg(Color::White))
         .divider(Span::raw("|"));
 
-        rect.render_widget(tabs, chunks[0]);
+      rect.render_widget(tabs, chunks[0]);
 
-        match active_menu_item {
-          MenuItem::Home => {
-            let pets_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(
-              [Constraint::Length(15), Constraint::Min(10)].as_ref(),
-              )
-            .split(chunks[1]);
+      match active_menu_item {
+        MenuItem::Home => {
+          let pets_chunks = Layout::default()
+          .direction(Direction::Horizontal)
+          .constraints(
+            [Constraint::Length(9), Constraint::Min(10)].as_ref(),
+            )
+          .split(chunks[1]);
 
-            let (list, right) = render_commit_list(commits.clone());
-            rect.render_stateful_widget(list, pets_chunks[0], &mut highlighted_commit);
-            rect.render_widget(right, pets_chunks[1]);
-          }
+          let (list, right) = render_commit_list(commits.clone());
+          rect.render_stateful_widget(list, pets_chunks[0], &mut highlighted_commit);
+          rect.render_widget(right, pets_chunks[1]);
         }
-      })?;
+      }
+    })?;
 
     match rx.recv()? {
       Event::Input(event) => match event.code {
@@ -279,7 +307,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
 fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
-  let commit_list = Block::default()
+  let sha_list = Block::default()
     .borders(Borders::TOP | Borders::BOTTOM | Borders::LEFT)
     .style(Style::default().fg(Color::White))
     .title("Commits")
@@ -291,15 +319,15 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
       ListItem::new(
         Spans::from(
           vec![
-          Span::styled(commit.sha.clone(), Style::default())
+            Span::styled(commit.short_sha.clone(), Style::default())
           ]
-          )
         )
+      )
     })
     .collect();
 
   let list = List::new(items)
-  .block(commit_list)
+  .block(sha_list)
   .highlight_style(
     Style::default()
     .bg(Color::Yellow)
@@ -308,34 +336,35 @@ fn render_commit_list<'a>(commits: Vec<CommitRow>) -> (List<'a>, Table<'a>) {
   );
 
   let rows = commits.iter()
-  .map(|commit| {
-    let commit = commit.clone();
-    Row::new(vec![
-      Cell::from(Span::raw(String::from(commit.sha))),
-      Cell::from(Span::raw(String::from(commit.author))),
-      Cell::from(Span::raw(String::from(commit.author_email))),
-    ])
-  });
+    .map(|commit| {
+      let commit = commit.clone();
+      let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
+      Row::new(vec![
+        Cell::from(Span::raw(String::from(commit.description))),
+        Cell::from(Span::raw(String::from(commit.author.name))),
+        Cell::from(Span::raw(String::from(co_authors.join(", ")))),
+      ])
+    });
 
   let commit_list = Table::new(rows)
-  .highlight_style(
-    Style::default()
-    .bg(Color::Yellow)
-    .fg(Color::Black)
-    .add_modifier(Modifier::BOLD),
-  )
-  .block(
-    Block::default()
-    .borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT)
-    .style(Style::default().fg(Color::White))
-    .border_type(BorderType::Plain),
-  )
-  .widths(&[
-    Constraint::Length(20),
-    Constraint::Length(20),
-    Constraint::Length(20),
-    Constraint::Length(20),
-  ]);
+    .highlight_style(
+      Style::default()
+      .bg(Color::Yellow)
+      .fg(Color::Black)
+      .add_modifier(Modifier::BOLD),
+    )
+    .block(
+      Block::default()
+      .borders(Borders::TOP | Borders::BOTTOM | Borders::RIGHT)
+      .style(Style::default().fg(Color::White))
+      .border_type(BorderType::Plain),
+    )
+    .widths(&[
+      Constraint::Length(20),
+      Constraint::Min(20),
+      Constraint::Min(20),
+
+    ]);
 
   (list, commit_list)
 }
