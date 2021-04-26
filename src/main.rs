@@ -68,6 +68,14 @@ impl<'a> StatefulTable {
     };
     self.state.select(Some(i));
   }
+
+  pub fn first(&mut self) {
+    self.state.select(Some(0));
+  }
+
+  pub fn last(&mut self) {
+    self.state.select(Some(self.commits.len() - 1));
+  }
 }
 
 
@@ -383,6 +391,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
           table.previous();
         }
 
+        KeyCode::PageUp => {
+          table.first();
+        }
+
+        KeyCode::PageDown => {
+          table.last();
+        }
         _ => {}
       },
 
