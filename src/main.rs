@@ -1,82 +1,34 @@
-use tui::layout::Constraint::{Length, Percentage};
+use std::io;
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use lazy_static::lazy_static;
-use chrono::prelude::*;
 
 use crossterm::{
   event::{self, Event as CEvent, KeyCode},
   terminal::{disable_raw_mode, enable_raw_mode},
 };
-use serde::{Deserialize, Serialize};
 
-use std::io;
-use std::sync::mpsc;
-use std::thread;
-
-use std::time::{Duration, Instant};
 use thiserror::Error;
 use tui::{
   backend::CrosstermBackend,
-  layout::{Constraint, Direction, Layout},
+  layout::{Constraint, Constraint::{Length, Percentage}, Direction, Layout},
   style::{Color, Modifier, Style},
   text::{Span, Spans},
   widgets::{
-    Block, Borders, Cell, Row, Table, TableState, Tabs,
+    Block, Borders, Cell, Row, Table, Tabs,
   },
   Terminal,
 };
 
-pub struct StatefulTable {
-  state: TableState,
-  commits: Vec<CommitRow>,
-}
+mod run_command;
 
-impl<'a> StatefulTable {
-  fn new(commits: Vec<CommitRow>) -> StatefulTable {
-    StatefulTable {
-      state: TableState::default(),
-      commits: commits
-    }
-  }
-
-  pub fn next(&mut self) {
-    let i = match self.state.selected() {
-      Some(i) => {
-        if i >= self.commits.len() - 1 {
-          0
-        } else {
-          i + 1
-        }
-      }
-      None => 0,
-    };
-    self.state.select(Some(i));
-  }
-
-  pub fn previous(&mut self) {
-    let i = match self.state.selected() {
-      Some(i) => {
-        if i == 0 {
-          self.commits.len() - 1
-        } else {
-          i - 1
-        }
-      }
-      None => 0,
-    };
-    self.state.select(Some(i));
-  }
-
-  pub fn first(&mut self) {
-    self.state.select(Some(0));
-  }
-
-  pub fn last(&mut self) {
-    self.state.select(Some(self.commits.len() - 1));
-  }
-}
-
+mod stateful_table;
+use stateful_table::StatefulTable;
+mod structs;
+use structs::{ Author, CommitRow };
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -89,31 +41,6 @@ pub enum Error {
 enum Event<I> {
   Input(I),
   Tick,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Commit {
-  id: usize,
-  name: String,
-  category: String,
-  age: usize,
-  created_at: DateTime<Utc>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Author {
-  name: String,
-  email: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct CommitRow {
-  sha: String,
-  short_sha: String,
-  subject: String,
-  author: Author,
-  contributor: Author,
-  co_authors: Vec<Author>,
 }
 
 fn extract_name(input: &str) -> String {
@@ -135,7 +62,7 @@ fn extract_email(input: &str) -> String {
 }
 
 fn interrogate_git_repository() -> Vec<CommitRow> {
-  let output: String = run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」", "--max-count=200"], "");
+  let output: String = run_command::run_command::run("git", &["log", "--pretty=%H‖%h‖%s‖%an‖%ae‖%cn‖%cE‖%(trailers:key=Co-authored-by)」", "--max-count=200"], "");
 
   let tidied_output: String = output.replace(r"」\n$", "");
   let mut rows: Vec<&str> = tidied_output.split("」\n").collect();
@@ -172,55 +99,6 @@ fn interrogate_git_repository() -> Vec<CommitRow> {
       return commit_row;
     }).collect();
   return commits;
-}
-
-mod run_command {
-  use std::process::{Command, Stdio};
-  use std::str;
-  use std::io::Write;
-  use std::{thread, time};
-
-  #[allow(unused)]
-  pub fn run_basic(program:&str) -> String {
-    let arguments: &[&str] = &[];
-    let std_in_string: &str = "";
-    run(program,arguments,std_in_string)
-   }
-
-  pub fn run(program:&str,arguments:&[&str],std_in_string:&str) -> String {
-    let mut child = Command::new(program)
-      .args(arguments)
-      .stdin(Stdio::piped())
-      .stdout(Stdio::piped())
-      .spawn()
-      .expect("failed to execute child");
-
-    {
-      let stdin = child.stdin.as_mut().expect("Failed to get stdin");
-      stdin.write_all(std_in_string.as_bytes()).expect("Failed to write to stdin");
-    }
-
-    let check_every = time::Duration::from_millis(10);
-    loop {
-      match child.try_wait() {
-        Ok(Some(_status)) => {break;},  // finished running
-        Ok(None) => {}                  // still running
-        Err(e) => {panic!("error attempting to wait: {}", e)},
-      }
-      thread::sleep(check_every);
-    }
-
-    let output = child
-      .wait_with_output()
-      .expect("failed to wait on child");
-
-    let final_output: String = match str::from_utf8(&output.stdout){
-      Ok(output) => {output.to_string()},
-      Err(e) => {panic!("{}", e);},
-    };
-
-    final_output
-  }
 }
 
 fn draw_menu() -> Tabs<'static> {
