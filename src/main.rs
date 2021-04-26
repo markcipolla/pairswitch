@@ -1,4 +1,3 @@
-use tui::layout::Rect;
 use tui::layout::Constraint::{Length, Percentage};
 
 use regex::Regex;
@@ -117,19 +116,6 @@ struct CommitRow {
   co_authors: Vec<Author>,
 }
 
-#[derive(Copy, Clone, Debug)]
-enum MenuItem {
-  Home,
-}
-
-impl From<MenuItem> for usize {
-  fn from(input: MenuItem) -> usize {
-    match input {
-      MenuItem::Home => 0,
-    }
-  }
-}
-
 fn extract_name(input: &str) -> String {
     lazy_static! {
       static ref RE: Regex = Regex::new(r"^Co-authored-by: (.+) <").unwrap();
@@ -237,6 +223,29 @@ mod run_command {
   }
 }
 
+fn draw_menu() -> Tabs<'static> {
+  let menu_titles = vec!["Change author", "Add pair", "Quit"];
+  let menu = menu_titles
+    .iter()
+    .map(|t| {
+      let (first, rest) = t.split_at(1);
+      Spans::from(vec![
+        Span::styled(
+          first,
+          Style::default()
+          .fg(Color::Yellow)
+          .add_modifier(Modifier::UNDERLINED),
+          ),
+        Span::styled(rest, Style::default().fg(Color::White)),
+        ])
+    })
+    .collect();
+
+  Tabs::new(menu)
+    .style(Style::default().fg(Color::White))
+    .divider(Span::raw("|"))
+}
+
 fn draw_header() -> Row<'static> {
   let header_style = Style::default().
     add_modifier(Modifier::BOLD).
@@ -252,6 +261,42 @@ fn draw_header() -> Row<'static> {
   Row::new(header_cells)
     .style(header_style)
     .height(1)
+}
+
+fn draw_table(commit_rows: Vec<CommitRow>) -> Table<'static> {
+  let tablestyle = Style::default().
+    bg(Color::Black).
+    fg(Color::Gray);
+
+  let selected_style = Style::default()
+    .bg(Color::Rgb(40, 40, 40))
+    .fg(Color::Gray);
+
+  let rows = commit_rows.iter()
+    .map(|commit| {
+      let commit = commit.clone();
+      let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
+
+    let author_list: String = if co_authors.len() > 0 {
+      format!("{}, {}", commit.author.name, co_authors.join(", "))
+    } else {
+      format!("{}", commit.author.name)
+    };
+
+    Row::new(vec![
+      commit.short_sha,
+      commit.subject,
+      author_list.to_string(),
+    ])
+  });
+
+  Table::new(rows)
+    .header(draw_header())
+    .block(Block::default().borders(Borders::ALL).title("Commits"))
+    .highlight_style(selected_style)
+    .highlight_symbol("➡️  ")
+    .widths(&[Length(10), Percentage(50), Percentage(50)])
+    .style(tablestyle)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -303,64 +348,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .split(size);
 
-      let menu_titles = vec!["Change author", "Add pair", "Quit"];
-      let menu = menu_titles
-        .iter()
-        .map(|t| {
-          let (first, rest) = t.split_at(1);
-          Spans::from(vec![
-            Span::styled(
-              first,
-              Style::default()
-              .fg(Color::Yellow)
-              .add_modifier(Modifier::UNDERLINED),
-              ),
-            Span::styled(rest, Style::default().fg(Color::White)),
-            ])
-        })
-        .collect();
-
-      let tabs = Tabs::new(menu)
-        .style(Style::default().fg(Color::White))
-        .divider(Span::raw("|"));
-
-      rect.render_widget(tabs, chunks[1]);
-
-      let tablestyle = Style::default().
-        bg(Color::Black).
-        fg(Color::Gray);
-
-      let selected_style = Style::default()
-        .bg(Color::Rgb(40, 40, 40))
-        .fg(Color::Gray);
-
-      let rows = commit_rows.iter()
-        .map(|commit| {
-          let commit = commit.clone();
-          let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
-
-        let author_list: String = if co_authors.len() > 0 {
-          format!("{}, {}", commit.author.name, co_authors.join(", "))
-        } else {
-          format!("{}", commit.author.name)
-        };
-
-        Row::new(vec![
-          commit.short_sha,
-          commit.subject,
-          author_list.to_string(),
-        ])
-      });
-
-      let t = Table::new(rows)
-        .header(draw_header())
-        .block(Block::default().borders(Borders::ALL).title("Commits"))
-        .highlight_style(selected_style)
-        .highlight_symbol("➡️  ")
-        .widths(&[Length(10), Percentage(50), Percentage(50)])
-        .style(tablestyle);
-
-        rect.render_stateful_widget(t, chunks[0], &mut table.state);
+      rect.render_widget(draw_menu(), chunks[1]);
+      rect.render_stateful_widget(draw_table(commit_rows.clone()), chunks[0], &mut table.state);
     })?;
 
     match rx.recv()? {
