@@ -1,5 +1,5 @@
-use tui::layout::Constraint::Length;
-use tui::layout::Constraint::Percentage;
+use tui::layout::Rect;
+use tui::layout::Constraint::{Length, Percentage};
 
 use regex::Regex;
 use lazy_static::lazy_static;
@@ -237,6 +237,23 @@ mod run_command {
   }
 }
 
+fn draw_header() -> Row<'static> {
+  let header_style = Style::default().
+    add_modifier(Modifier::BOLD).
+    add_modifier(Modifier::SLOW_BLINK).
+    add_modifier(Modifier::UNDERLINED).
+    fg(Color::Gray).
+    bg(Color::Blue);
+
+  let header_cells = ["SHA", "Subject", "Author and co-authors"]
+    .iter()
+    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Gray)));
+
+  Row::new(header_cells)
+    .style(header_style)
+    .height(1)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let commit_rows: Vec<CommitRow> = interrogate_git_repository();
   let mut table = StatefulTable::new(commit_rows.clone());
@@ -272,9 +289,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut terminal = Terminal::new(backend)?;
   terminal.clear()?;
 
-  let menu_titles = vec!["Change author", "Add pair", "Quit"];
-  let active_menu_item = MenuItem::Home;
-
   loop {
     terminal.draw(|rect| {
       let size = rect.size();
@@ -289,6 +303,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .split(size);
 
+      let menu_titles = vec!["Change author", "Add pair", "Quit"];
       let menu = menu_titles
         .iter()
         .map(|t| {
@@ -306,7 +321,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
       let tabs = Tabs::new(menu)
-        .select(active_menu_item.into())
         .style(Style::default().fg(Color::White))
         .divider(Span::raw("|"));
 
@@ -316,27 +330,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         bg(Color::Black).
         fg(Color::Gray);
 
-
       let selected_style = Style::default()
         .bg(Color::Rgb(40, 40, 40))
         .fg(Color::Gray);
-
-
-      let normal_style = Style::default().
-        add_modifier(Modifier::BOLD).
-        add_modifier(Modifier::SLOW_BLINK).
-        add_modifier(Modifier::UNDERLINED).
-        fg(Color::Gray).
-        bg(Color::Blue);
-
-
-      let header_cells = ["SHA", "Subject", "Author and co-authors"]
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Gray)));
-
-      let header = Row::new(header_cells)
-        .style(normal_style)
-        .height(1);
 
       let rows = commit_rows.iter()
         .map(|commit| {
@@ -357,7 +353,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       });
 
       let t = Table::new(rows)
-        .header(header)
+        .header(draw_header())
         .block(Block::default().borders(Borders::ALL).title("Commits"))
         .highlight_style(selected_style)
         .highlight_symbol("➡️  ")
