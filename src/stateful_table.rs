@@ -1,7 +1,5 @@
 use tui::{
-  widgets::{
-    TableState,
-  },
+  widgets::{TableState},
 };
 
 // mod structs;
