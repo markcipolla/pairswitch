@@ -3,6 +3,19 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+extern crate cursive;
+extern crate fui;
+extern crate serde_json;
+
+use cursive::traits::Resizable;
+use cursive::views::Dialog;
+use cursive::Cursive;
+use serde_json::value::Value;
+
+use fui::fields::Autocomplete;
+use fui::form::FormView;
+use fui::validators::{OneOf, Required};
+
 use regex::Regex;
 use lazy_static::lazy_static;
 
@@ -177,6 +190,39 @@ fn draw_table(commit_rows: Vec<CommitRow>) -> Table<'static> {
     .style(tablestyle)
 }
 
+fn draw_manage_commit_menu() -> Tabs<'static> {
+  let menu_titles = vec!["Escape to go back"];
+  let menu = menu_titles
+    .iter()
+    .map(|t| {
+      let (first, rest) = t.split_at(1);
+      Spans::from(vec![
+        Span::styled(
+          first,
+          Style::default()
+          .fg(Color::Yellow)
+          .add_modifier(Modifier::UNDERLINED),
+          ),
+        Span::styled(rest, Style::default().fg(Color::White)),
+        ])
+    })
+    .collect();
+
+  Tabs::new(menu)
+    .style(Style::default().fg(Color::White))
+    .divider(Span::raw("|"))
+}
+
+fn draw_manage_commit(selected_commit_index: u32, commit_rows: Vec<CommitRow>) -> Block<'static> {
+  let commit = &commit_rows[selected_commit_index as usize];
+  let block = Block::default()
+    .borders(Borders::ALL)
+    .style(Style::default().bg(Color::Rgb(60,60,60)))
+    .title(format!("{}", commit.subject));
+
+  return block;
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let commit_rows: Vec<CommitRow> = interrogate_git_repository();
   let mut table = StatefulTable::new(commit_rows.clone());
@@ -212,10 +258,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut terminal = Terminal::new(backend)?;
   terminal.clear()?;
 
+  let mut selected_commit_index = 0;
+  let mut interacting_with_selected_commit = false;
+
+
+
   loop {
     terminal.draw(|rect| {
       let size = rect.size();
-      let chunks = Layout::default()
+
+      let commit_list = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
           [
@@ -225,46 +277,79 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
           .as_ref(),
         )
         .split(size);
+        rect.render_widget(draw_menu(), commit_list[1]);
+        rect.render_stateful_widget(draw_table(commit_rows.clone()), commit_list[0], &mut table.state);
 
-      rect.render_widget(draw_menu(), chunks[1]);
-      rect.render_stateful_widget(draw_table(commit_rows.clone()), chunks[0], &mut table.state);
+      if interacting_with_selected_commit == true {
+        let modal_margin = if size.width > 80 { 5 } else { 0 };
+        let modal = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(modal_margin)
+        .constraints(
+          [
+            Constraint::Min(2),
+            Constraint::Length(1),
+          ]
+          .as_ref(),
+        )
+        .split(size);
+        rect.render_widget(draw_manage_commit_menu(), modal[1]);
+        rect.render_widget(draw_manage_commit(selected_commit_index, commit_rows.clone()), modal[0]);
+      }
     })?;
 
-    match rx.recv()? {
-      Event::Input(event) => match event.code {
-        KeyCode::Char('q') => {
-          disable_raw_mode()?;
-          terminal.clear()?;
-          terminal.show_cursor()?;
-          break;
-        }
+    if interacting_with_selected_commit == true {
+       match rx.recv()? {
+        Event::Input(event) => match event.code {
+          KeyCode::Esc => {
+            interacting_with_selected_commit = false
+          }
+          _ => {}
+        },
+        Event::Tick => {}
+      }
+    } else  {
+      match rx.recv()? {
+        Event::Input(event) => match event.code {
+          KeyCode::Char('q') => {
+            disable_raw_mode()?;
+            terminal.clear()?;
+            terminal.show_cursor()?;
+            break;
+          }
 
-        KeyCode::Esc => {
-          disable_raw_mode()?;
-          terminal.clear()?;
-          terminal.show_cursor()?;
-          break;
-        }
+          KeyCode::Esc => {
+            disable_raw_mode()?;
+            terminal.clear()?;
+            terminal.show_cursor()?;
+            break;
+          }
 
-        KeyCode::Down => {
-          table.next();
-        }
+          KeyCode::Char('a') => {
+            interacting_with_selected_commit = true;
+          }
 
-        KeyCode::Up => {
-          table.previous();
-        }
+          KeyCode::Down => {
+            table.next();
+            selected_commit_index = table.state.selected().unwrap() as u32;
+          }
+          KeyCode::Up => {
+            table.previous();
+            selected_commit_index = table.state.selected().unwrap() as u32;
+          }
+          KeyCode::PageUp => {
+            table.first();
+            selected_commit_index = table.state.selected().unwrap() as u32;
+          }
+          KeyCode::PageDown => {
+            table.last();
+            selected_commit_index = table.state.selected().unwrap() as u32;
+          }
+          _ => {}
+        },
 
-        KeyCode::PageUp => {
-          table.first();
-        }
-
-        KeyCode::PageDown => {
-          table.last();
-        }
-        _ => {}
-      },
-
-      Event::Tick => {}
+        Event::Tick => {}
+      }
     }
   }
 
