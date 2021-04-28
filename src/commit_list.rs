@@ -4,7 +4,7 @@ use header::draw_header;
 
 #[path = "structs.rs"]
 mod structs;
-use super::structs::{ CommitRow };
+use super::structs::{ Commit };
 
 use tui::{
   layout::{Constraint::{Length, Percentage}},
@@ -12,7 +12,7 @@ use tui::{
   widgets::{Borders, Block, Row, Table},
 };
 
-pub fn draw_commit_list(commit_rows: Vec<CommitRow>) -> Table<'static> {
+pub fn draw_commit_list(commit_rows: Vec<Commit>) -> Table<'static> {
   let tablestyle = Style::default().
     bg(Color::Black).
     fg(Color::Gray);

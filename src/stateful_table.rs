@@ -3,15 +3,15 @@ use tui::{
 };
 
 // mod structs;
-use crate::structs::{CommitRow};
+use crate::structs::{Commit};
 
 pub struct StatefulTable {
   pub state: TableState,
-  pub commits: Vec<CommitRow>,
+  pub commits: Vec<Commit>,
 }
 
 impl<'a> StatefulTable {
-  pub fn new(commits: Vec<CommitRow>) -> StatefulTable {
+  pub fn new(commits: Vec<Commit>) -> StatefulTable {
     StatefulTable {
       state: TableState::default(),
       commits: commits

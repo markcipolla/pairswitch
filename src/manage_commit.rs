@@ -1,13 +1,13 @@
 #[path = "structs.rs"]
 mod structs;
-use super::structs::{ CommitRow };
+use super::structs::{ Commit };
 
 use tui::{
   style::{Color, Style},
   widgets::{Block, Borders},
 };
 
-pub fn draw_manage_commit(selected_commit_index: u32, commit_rows: Vec<CommitRow>) -> Block<'static> {
+pub fn draw_manage_commit(selected_commit_index: u32, commit_rows: Vec<Commit>) -> Block<'static> {
   let commit = &commit_rows[selected_commit_index as usize];
   let block = Block::default()
     .borders(Borders::ALL)
