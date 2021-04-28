@@ -1,195 +1,218 @@
-use std::io;
-use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, Instant};
-
+// Crate Dependencies ---------------------------------------------------------
 extern crate cursive;
-extern crate fui;
-extern crate serde_json;
+extern crate cursive_table_view;
+extern crate rand;
 
-use crossterm::{
-  event::{self, Event as CEvent, KeyCode},
-  terminal::{disable_raw_mode, enable_raw_mode},
+// STD Dependencies -----------------------------------------------------------
+use std::cmp::Ordering;
+
+// External Dependencies ------------------------------------------------------
+// ----------------------------------------------------------------------------
+use cursive_table_view::{TableViewItem, TableView};
+use cursive::{
+    Cursive,
+    align::HAlign,
+    traits::*,
+    views::{
+        Button,
+        Dialog,
+        DummyView,
+        EditView,
+        LinearLayout,
+        SelectView,
+        TextView
+    }
 };
 
-use thiserror::Error;
-use tui::{
-  backend::CrosstermBackend,
-  layout::{Constraint, Direction, Layout},
-  style::{Color, Style},
-  Terminal,
-  widgets::{Block, Borders},
-};
 
-mod git;
-use git::interrogate_git_repository;
+use rand::Rng;
 
-mod commit_list;
-use commit_list::draw_commit_list;
-mod manage_commit_menu;
-use manage_commit_menu::draw_manage_commit_menu;
-mod menu;
-use menu::draw_menu;
 
-mod stateful_table;
-use stateful_table::StatefulTable;
-mod structs;
-use structs::{ CommitRow };
-
-#[derive(Error, Debug)]
-pub enum Error {
-  #[error("error reading the DB file: {0}")]
-  ReadDBError(#[from] io::Error),
-  #[error("error parsing the DB file: {0}")]
-  ParseDBError(#[from] serde_json::Error),
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+enum BasicColumn {
+    Name,
+    Count,
+    Rate,
 }
 
-enum Event<I> {
-  Input(I),
-  Tick,
-}
-
-
-
-
-
-fn draw_manage_commit(selected_commit_index: u32, commit_rows: Vec<CommitRow>) -> Block<'static> {
-  let commit = &commit_rows[selected_commit_index as usize];
-  let block = Block::default()
-    .borders(Borders::ALL)
-    .style(Style::default().bg(Color::Rgb(60,60,60)))
-    .title(format!("{}", commit.subject));
-
-  return block;
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let commit_rows: Vec<CommitRow> = interrogate_git_repository();
-  let mut table = StatefulTable::new(commit_rows.clone());
-
-  enable_raw_mode().expect("can run in raw mode");
-
-  let (tx, rx) = mpsc::channel();
-  let tick_rate = Duration::from_millis(200);
-
-  thread::spawn(move || {
-    let mut last_tick = Instant::now();
-    loop {
-      let timeout = tick_rate
-      .checked_sub(last_tick.elapsed())
-      .unwrap_or_else(|| Duration::from_secs(0));
-
-      if event::poll(timeout).expect("poll works") {
-        if let CEvent::Key(key) = event::read().expect("can read events") {
-          tx.send(Event::Input(key)).expect("can send events");
+impl BasicColumn {
+    fn as_str(&self) -> &str {
+        match *self {
+            BasicColumn::Name => "Name",
+            BasicColumn::Count => "Count",
+            BasicColumn::Rate => "Rate",
         }
-      }
+    }
+}
 
-      if last_tick.elapsed() >= tick_rate {
-        if let Ok(_) = tx.send(Event::Tick) {
-          last_tick = Instant::now();
+#[derive(Clone, Debug)]
+struct Foo {
+    name: String,
+    count: usize,
+    rate: usize,
+}
+
+impl TableViewItem<BasicColumn> for Foo {
+    fn to_column(&self, column: BasicColumn) -> String {
+        match column {
+            BasicColumn::Name => self.name.to_string(),
+            BasicColumn::Count => format!("{}", self.count),
+            BasicColumn::Rate => format!("{}", self.rate),
         }
-      }
     }
-  });
 
-  let stdout = io::stdout();
-  let backend = CrosstermBackend::new(stdout);
-  let mut terminal = Terminal::new(backend)?;
-  terminal.clear()?;
-
-  let mut selected_commit_index = 0;
-  let mut interacting_with_selected_commit = false;
-
-  loop {
-    terminal.draw(|rect| {
-      let size = rect.size();
-
-      let commit_list = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-          [
-            Constraint::Min(2),
-            Constraint::Length(1),
-          ]
-          .as_ref(),
-        )
-        .split(size);
-        rect.render_widget(draw_menu(), commit_list[1]);
-        rect.render_stateful_widget(draw_commit_list(commit_rows.clone()), commit_list[0], &mut table.state);
-
-      if interacting_with_selected_commit == true {
-        let modal_margin = if size.width > 80 { 5 } else { 0 };
-        let modal = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(modal_margin)
-        .constraints(
-          [
-            Constraint::Min(2),
-            Constraint::Length(1),
-          ]
-          .as_ref(),
-        )
-        .split(size);
-        rect.render_widget(draw_manage_commit_menu(), modal[1]);
-        rect.render_widget(draw_manage_commit(selected_commit_index, commit_rows.clone()), modal[0]);
-      }
-    })?;
-
-    if interacting_with_selected_commit == true {
-       match rx.recv()? {
-        Event::Input(event) => match event.code {
-          KeyCode::Esc => {
-            interacting_with_selected_commit = false
-          }
-          _ => {}
-        },
-        Event::Tick => {}
-      }
-    } else  {
-      match rx.recv()? {
-        Event::Input(event) => match event.code {
-          KeyCode::Char('q') => {
-            disable_raw_mode()?;
-            terminal.clear()?;
-            terminal.show_cursor()?;
-            break;
-          }
-
-          KeyCode::Esc => {
-            disable_raw_mode()?;
-            terminal.clear()?;
-            terminal.show_cursor()?;
-            break;
-          }
-
-          KeyCode::Char('a') => {
-            interacting_with_selected_commit = true;
-          }
-
-          KeyCode::Down => {
-            table.next();
-            selected_commit_index = table.state.selected().unwrap() as u32;
-          }
-          KeyCode::Up => {
-            table.previous();
-            selected_commit_index = table.state.selected().unwrap() as u32;
-          }
-          KeyCode::PageUp => {
-            table.first();
-            selected_commit_index = table.state.selected().unwrap() as u32;
-          }
-          KeyCode::PageDown => {
-            table.last();
-            selected_commit_index = table.state.selected().unwrap() as u32;
-          }
-          _ => {}
-        },
-
-        Event::Tick => {}
-      }
+    fn cmp(&self, other: &Self, column: BasicColumn) -> Ordering
+    where
+        Self: Sized,
+    {
+        match column {
+            BasicColumn::Name => self.name.cmp(&other.name),
+            BasicColumn::Count => self.count.cmp(&other.count),
+            BasicColumn::Rate => self.rate.cmp(&other.rate),
+        }
     }
-  }
+}
 
-  Ok(())
+fn create_table() -> TableView<Foo, BasicColumn> {
+    let mut items = Vec::new();
+    let mut rng = rand::thread_rng();
+
+    for i in 0..50 {
+        items.push(Foo {
+            name: format!("Name {}", i),
+            count: rng.gen_range(0..255),
+            rate: rng.gen_range(0..255),
+        });
+    }
+
+    TableView::<Foo, BasicColumn>::new()
+        .column(BasicColumn::Name, "Name", |c| c.width_percent(20))
+        .column(BasicColumn::Count, "Count", |c| c.align(HAlign::Center))
+        .column(BasicColumn::Rate, "Rate", |c| {
+            c.ordering(Ordering::Greater)
+                .align(HAlign::Right)
+                .width_percent(20)
+        })
+        .items(items)
+}
+
+fn main() {
+    let mut rng = rand::thread_rng();
+    let mut siv = cursive::default();
+
+    let select = SelectView::<String>::new()
+        .on_submit(on_submit)
+        .with_name("select")
+        .fixed_size((10, 5));
+
+    let buttons = LinearLayout::vertical()
+        .child(Button::new("Add new", add_name))
+        .child(Button::new("Delete", delete_name))
+        .child(DummyView)
+        .child(Button::new("Quit", Cursive::quit));
+
+    siv.add_layer(Dialog::around(LinearLayout::horizontal()
+            .child(select)
+            .child(DummyView)
+            .child(buttons))
+        .title("Select a profile"));
+
+    siv.call_on_name("select", |view: &mut SelectView<String>| {
+      view.add_item_str("Staring name from cimmits")
+    });
+
+    let mut table = TableView::<Foo, BasicColumn>::new()
+        .column(BasicColumn::Name, "Name", |c| c.width_percent(20))
+        .column(BasicColumn::Count, "Count", |c| c.align(HAlign::Center))
+        .column(BasicColumn::Rate, "Rate", |c| {
+            c.ordering(Ordering::Greater)
+                .align(HAlign::Right)
+                .width_percent(20)
+        });
+
+    let mut items = Vec::new();
+    for i in 0..50 {
+        items.push(Foo {
+            name: format!("Name {}", i),
+            count: rng.gen_range(0..=255),
+            rate: rng.gen_range(0..=255),
+        });
+    }
+
+    table.set_items(items);
+
+    table.set_on_sort(|siv: &mut Cursive, column: BasicColumn, order: Ordering| {
+        siv.add_layer(
+            Dialog::around(TextView::new(format!("{} / {:?}", column.as_str(), order)))
+                .title("Sorted by")
+                .button("Close", |s| {
+                    s.pop_layer();
+                }),
+        );
+    });
+
+    table.set_on_submit(|siv: &mut Cursive, row: usize, index: usize| {
+        let value = siv
+            .call_on_name("table", move |table: &mut TableView<Foo, BasicColumn>| {
+                format!("{:?}", table.borrow_item(index).unwrap())
+            })
+            .unwrap();
+
+        siv.add_layer(
+            Dialog::around(TextView::new(value))
+                .title(format!("Removing row # {}", row))
+                .button("Close", move |s| {
+                    s.call_on_name("table", |table: &mut TableView<Foo, BasicColumn>| {
+                        table.remove_item(index);
+                    });
+                    s.pop_layer();
+                }),
+        );
+    });
+
+    siv.add_layer(Dialog::around(table.with_name("table").min_size((50, 20))).title("Table View"));
+
+    siv.run();
+}
+
+fn add_name(s: &mut Cursive) {
+    fn ok(s: &mut Cursive, name: &str) {
+        s.call_on_name("select", |view: &mut SelectView<String>| {
+            view.add_item_str(name)
+        });
+        s.pop_layer();
+    }
+
+    s.add_layer(Dialog::around(EditView::new()
+            .on_submit(ok)
+            .with_name("name")
+            .fixed_width(10))
+        .title("Enter a new name")
+        .button("Ok", |s| {
+            let name =
+                s.call_on_name("name", |view: &mut EditView| {
+                    view.get_content()
+                }).unwrap();
+            ok(s, &name);
+        })
+        .button("Cancel", |s| {
+            s.pop_layer();
+        }));
+}
+
+fn delete_name(s: &mut Cursive) {
+    let mut select = s.find_name::<SelectView<String>>("select").unwrap();
+    match select.selected_id() {
+        None => s.add_layer(Dialog::info("No name to remove")),
+        Some(focus) => {
+            select.remove_item(focus);
+        }
+    }
+}
+
+fn on_submit(s: &mut Cursive, name: &str) {
+    s.pop_layer();
+    s.add_layer(Dialog::text(format!("Name: {}\nAwesome: yes", name))
+        .title(format!("{}'s info", name))
+        .button("Quit", Cursive::quit));
 }
