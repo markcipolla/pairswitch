@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 impl Contributor {}
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Contributor {
   pub name: String,
   pub email: String,

@@ -10,7 +10,14 @@ use std::cmp::Ordering;
 mod git;
 use git::interrogate_git_repository;
 mod structs;
-use structs::{ Commit };
+use structs::{ Contributor, Commit };
+use itertools::Itertools;
+use serde_json::value::Value;
+use fui::fields::Autocomplete;
+use fui::form::FormView;
+
+
+use fui::validators::{Required};
 
 // External Dependencies ------------------------------------------------------
 use cursive_table_view::{TableViewItem, TableView};
@@ -24,7 +31,6 @@ use cursive::{
       Theme,
     },
     views::{
-      BoxedView,
       TextView,
       ResizedView,
       Dialog,
@@ -52,9 +58,9 @@ fn authors_and_contributors(commit: &Commit) -> String {
   let co_authors: Vec<String> = commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect();
 
   let author_list: String = if co_authors.len() > 0 {
-    format!("{}, {}", commit.author.name, co_authors.join(", "))
+    format!("{}, {}", commit.author.clone().name, co_authors.join(", "))
   } else {
-    format!("{}", commit.author.name)
+    format!("{}", commit.author.clone().name)
   };
 
   return author_list.to_string();
@@ -89,6 +95,13 @@ fn theme(siv: &Cursive) -> Theme {
   theme
 }
 
+
+fn show_data(c: &mut Cursive, data: Value) {
+  c.pop_layer();
+  let text = format!("Got data: {:?}", data);
+  c.add_layer(Dialog::info(text));
+}
+
 fn main() {
   let mut siv = cursive::default();
 
@@ -106,41 +119,60 @@ fn main() {
     });
 
   let commits: Vec<Commit> = interrogate_git_repository();
+  let collaborators: Vec<Contributor> = commits.clone()
+    .iter()
+    .map(|commit| {
+      commit.author.clone()
+    })
+    .unique_by(|c| format!("{}-{}", c.name, c.email))
+    .collect();
 
-  table.set_items(commits);
 
-  table.set_on_sort(|siv: &mut Cursive, column: BasicColumn, order: Ordering| {
-    siv.add_layer(
-      Dialog::around(TextView::new(format!("{} / {:?}", column.as_str(), order)))
-        .title("Sorted by")
-        .button("Close", |s| {
-          s.pop_layer();
-        }),
-    );
-  });
+  let collaborator_names: Vec<String> = collaborators.iter()
 
-  table.set_on_submit(|siv: &mut Cursive, row: usize, index: usize| {
-    let value = siv.call_on_name("table", move |table: &mut TableView<Commit, BasicColumn>| {
+    .map(|collaborator| {
+      collaborator.name.clone().to_string()
+    })
+    .collect();
+
+  let _names_list: Vec<String> = collaborator_names.iter().cloned().unique().collect_vec();
+
+
+  table.set_items(commits.clone());
+
+  // table.set_on_sort(|siv: &mut Cursive, column: BasicColumn, order: Ordering| {
+  //   siv.add_layer(
+  //     Dialog::around(TextView::new(format!("{} / {:?}", column.as_str(), order)))
+  //       .title("Sorted by")
+  //       .button("Close", |s| {
+  //         s.pop_layer();
+  //       }),
+  //   );
+  // });
+
+  table.set_on_submit(move |siv: &mut Cursive, _row: usize, index: usize| {
+    let _value = siv.call_on_name("table", move |table: &mut TableView<Commit, BasicColumn>| {
         format!("{:?}", table.borrow_item(index).unwrap())
       }).unwrap();
 
-      siv.add_layer(
-        Dialog::around(TextView::new(value))
-          .title(format!("Removing row # {}", row))
-          .button("Close", move |s| {
-            s.call_on_name("table", |_table: &mut TableView<Commit, BasicColumn>| {
-              // table.remove_item(index);
-            });
-            s.pop_layer();
-          }
-        ),
-      );
+
+      let author_name = &commits.clone()[index].author.name;
+      let form = FormView::new()
+        .field(
+          Autocomplete::new("Author", collaborator_names.clone())
+            .help("help")
+            .initial(author_name)
+            .validator(Required)
+        )
+        .on_submit(show_data);
+      siv.add_layer(Dialog::around(form).full_screen());
   });
 
   siv.add_layer(
     ResizedView::with_full_screen(table.with_name("table"))
   );
 
+  siv.set_fps(32);
   siv.run();
 }
 
