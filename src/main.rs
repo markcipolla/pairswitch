@@ -4,6 +4,7 @@ extern crate cursive_table_view;
 extern crate rand;
 
 // STD Dependencies -----------------------------------------------------------
+use fui::cursive::views::TextArea;
 use std::cmp::Ordering;
 
 // Local modules
@@ -33,6 +34,9 @@ use cursive::{
     views::{
       ResizedView,
       Dialog,
+      LinearLayout,
+      TextView,
+      Button
     }
 };
 
@@ -150,7 +154,6 @@ fn main() {
     .collect();
 
   table.set_items(commits.clone());
-
   table.set_on_submit(move |siv: &mut Cursive, _row: usize, index: usize| {
     let commit: &Commit = &commits.clone()[index];
 
@@ -167,11 +170,16 @@ fn main() {
       )
       .on_submit(submit_form)
       .on_cancel(cancel_form);
-    siv.add_layer(Dialog::around(form));//.full_screen());
+    siv.add_layer(Dialog::around(form));
   });
 
+  let layout = LinearLayout::vertical()
+      .child(TextView::new("Top of the page"))
+      .child(Button::new("Ok", |s| s.quit()))
+      .child(ResizedView::with_full_screen(table.with_name("table")));
+
   siv.add_layer(
-    ResizedView::with_full_screen(table.with_name("table"))
+    layout
   );
 
   siv.set_fps(32);
