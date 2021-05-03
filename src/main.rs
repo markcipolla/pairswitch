@@ -4,7 +4,7 @@ extern crate cursive_table_view;
 extern crate rand;
 
 // STD Dependencies -----------------------------------------------------------
-use fui::cursive::views::{BoxedView, TextArea};
+
 use std::cmp::Ordering;
 
 // Local modules
@@ -134,9 +134,7 @@ fn table(commits: Vec<Commit>) -> TableView::<Commit, BasicColumn> {
   let mut table_view = TableView::<Commit, BasicColumn>::new()
     .column(BasicColumn::ShortSha, "SHA", |c| c.align(HAlign::Right).width(10))
     .column(BasicColumn::Subject, "Subject", |c| c)
-    .column(BasicColumn::Authors, "Authors", |c| {
-      c.ordering(Ordering::Greater)
-    });
+    .column(BasicColumn::Authors, "Authors", |c| c);
 
   let collaborator_names: Vec<String> = contributors(commits.clone()).iter()
     .map(|collaborator| {
@@ -157,7 +155,7 @@ fn table(commits: Vec<Commit>) -> TableView::<Commit, BasicColumn> {
       )
       .field(
         Multiselect::new("Co-author (s)", collaborator_names.clone())
-        .initial(co_author_names(&commit))
+          .initial(co_author_names(&commit))
       )
       .on_submit(submit_form)
       .on_cancel(cancel_form);
@@ -188,9 +186,7 @@ fn main() {
   // We can quit by pressing `q`
   siv.add_global_callback('q', Cursive::quit);
 
-  siv.add_layer(
-    draw_main_interface(commits)
-  );
+  siv.add_layer(draw_main_interface(commits));
 
   siv.set_fps(32);
   siv.run();
