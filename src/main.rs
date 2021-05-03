@@ -4,7 +4,7 @@ extern crate cursive_table_view;
 extern crate rand;
 
 // STD Dependencies -----------------------------------------------------------
-use fui::cursive::views::TextArea;
+use fui::cursive::views::{BoxedView, TextArea};
 use std::cmp::Ordering;
 
 // Local modules
@@ -123,29 +123,20 @@ fn cancel_form(s: &mut Cursive) {
   s.pop_layer();
 }
 
-fn submit_form(c: &mut Cursive, data: Value) {
-  c.pop_layer();
-  let text = format!("Got data: {:?}", data);
-  c.add_layer(Dialog::info(text));
+fn draw_start_pairing_session() -> LinearLayout {
+  LinearLayout::vertical()
+    .child(TextView::new("Start a pairing session?"))
+    .child(Button::new("Ok", |s| s.quit()))
+
 }
 
-fn main() {
-  let mut siv = cursive::default();
-
-  let theme = theme(&siv);
-  siv.set_theme(theme);
-
-  // We can quit by pressing `q`
-  siv.add_global_callback('q', Cursive::quit);
-
-  let mut table = TableView::<Commit, BasicColumn>::new()
+fn table(commits: Vec<Commit>) -> TableView::<Commit, BasicColumn> {
+  let mut table_view = TableView::<Commit, BasicColumn>::new()
     .column(BasicColumn::ShortSha, "SHA", |c| c.align(HAlign::Right).width(10))
     .column(BasicColumn::Subject, "Subject", |c| c)
     .column(BasicColumn::Authors, "Authors", |c| {
       c.ordering(Ordering::Greater)
     });
-
-  let commits: Vec<Commit> = interrogate_git_repository();
 
   let collaborator_names: Vec<String> = contributors(commits.clone()).iter()
     .map(|collaborator| {
@@ -153,8 +144,8 @@ fn main() {
     })
     .collect();
 
-  table.set_items(commits.clone());
-  table.set_on_submit(move |siv: &mut Cursive, _row: usize, index: usize| {
+  table_view.set_items(commits.clone());
+  table_view.set_on_submit(move |siv: &mut Cursive, _row: usize, index: usize| {
     let commit: &Commit = &commits.clone()[index];
 
     let author_name = commit.clone().author.name;
@@ -173,13 +164,32 @@ fn main() {
     siv.add_layer(Dialog::around(form));
   });
 
-  let layout = LinearLayout::vertical()
-      .child(TextView::new("Top of the page"))
-      .child(Button::new("Ok", |s| s.quit()))
-      .child(ResizedView::with_full_screen(table.with_name("table")));
+  return table_view;
+}
+
+fn draw_main_interface(commits: Vec<Commit>) -> LinearLayout {
+  LinearLayout::vertical()
+    .child(draw_start_pairing_session())
+    .child(ResizedView::with_full_screen(table(commits).with_name("table")))
+}
+
+fn submit_form(c: &mut Cursive, data: Value) {
+  c.pop_layer();
+  let text = format!("Got data: {:?}", data);
+  c.add_layer(Dialog::info(text));
+}
+
+fn main() {
+  let mut siv = cursive::default();
+  let commits: Vec<Commit> = interrogate_git_repository();
+  let theme = theme(&siv);
+  siv.set_theme(theme);
+
+  // We can quit by pressing `q`
+  siv.add_global_callback('q', Cursive::quit);
 
   siv.add_layer(
-    layout
+    draw_main_interface(commits)
   );
 
   siv.set_fps(32);
