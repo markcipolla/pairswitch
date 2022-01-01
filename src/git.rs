@@ -10,9 +10,9 @@ mod structs;
 use super::structs::{ Contributor, Commit };
 
 fn extract_name(input: &str) -> String {
-    lazy_static! {
-      static ref RE: Regex = Regex::new(r"^Co-authored-by: (.+) <").unwrap();
-    }
+  lazy_static! {
+    static ref RE: Regex = Regex::new(r"^Co-authored-by: (.+) <").unwrap();
+  }
   let cap = RE.captures(input).unwrap();
 
   format!("{}", &cap[1])
@@ -66,4 +66,3 @@ pub fn interrogate_git_repository() -> Vec<Commit> {
     }).collect();
   return commits;
 }
-
