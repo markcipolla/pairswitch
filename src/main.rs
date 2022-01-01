@@ -119,9 +119,9 @@ fn authors_and_contributors_names(commit: &Commit) -> String {
 fn main() {
     let mut siv = cursive::default();
 
-    let matches = App::new("My Test Program")
-      .version("0.1.0")
-      .author("Hackerman Jones <hckrmnjones@hack.gov>")
+    let matches = App::new("Pairswitch")
+      .version("0.0.1")
+      .author("Mark Cipolla <mark@markcipolla.com>")
       .about("Teaches argument parsing")
       .arg(Arg::with_name("stage")
         .short('s')
@@ -129,10 +129,20 @@ fn main() {
         .takes_value(true)
         .help("Internally used to respond to Git hooks")
       )
+      .arg(Arg::with_name("init")
+        .short('i')
+        .long("init")
+        .takes_value(false)
+        .help("Sets up Git hooks to...")
+      )
       .get_matches();
 
+    println!("Initialising {:?}", matches.is_present("init"));
     let stage = matches.value_of("stage").unwrap_or("default");
-    println!("The stage is: {}", stage);
+
+    if stage == "pre-commit" {
+      println!("The stage is: {}", stage);
+    }
 
     let commits: Vec<Commit> = interrogate_git_repository();
 
