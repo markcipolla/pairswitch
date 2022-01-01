@@ -2,6 +2,10 @@
 mod initialize_git;
 use initialize_git::{ initialize_git };
 
+#[path = "pre_commit.rs"]
+mod pre_commit;
+use pre_commit::{ pre_commit };
+
 use clap::{Arg, App};
 
 fn main() {
@@ -32,6 +36,9 @@ fn main() {
       initialize_git(&mut siv);
       siv.run();
     } else if stage == "pre-commit" {
+      pre_commit(&mut siv);
+      siv.run();
+    } else if stage == "prepare-commit-msg" {
       println!("The stage is: {}", stage);
     } else {
 
