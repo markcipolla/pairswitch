@@ -1,18 +1,8 @@
-// Local modules
-// #[path = "git.rs"]
-// mod git;
-// use git::interrogate_git_repository;
-
-// #[path = "structs.rs"]
-// mod structs;
-// use structs::{ Contributor, Commit };
-
 #[path = "initialize_git.rs"]
 mod initialize_git;
 use initialize_git::{ initialize_git };
 
 use clap::{Arg, App};
-// use itertools::Itertools;
 
 fn main() {
     let mut siv = cursive::default();
@@ -46,6 +36,4 @@ fn main() {
     } else {
 
     }
-
-
 }
