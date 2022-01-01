@@ -3,14 +3,6 @@
 // mod git;
 // use git::interrogate_git_repository;
 
-// #[path = "table.rs"]
-// mod table;
-// use table::table_view;
-
-// // #[path = "theme.rs"]
-// // mod theme;
-// // use theme::theme;
-
 // #[path = "structs.rs"]
 // mod structs;
 // use structs::{ Contributor, Commit };
@@ -47,20 +39,13 @@ fn main() {
     let stage = arguments.value_of("stage").unwrap_or("default");
 
     if is_init {
-      initialize_git(&mut siv)
+      initialize_git(&mut siv);
+      siv.run();
     } else if stage == "pre-commit" {
       println!("The stage is: {}", stage);
     } else {
 
     }
 
-    // let commits: Vec<Commit> = interrogate_git_repository();
 
-    // let collaborator_names: Vec<String> = contributors(commits.clone()).iter()
-    //   .map(|collaborator| {
-    //     collaborator.clone().name.to_string()
-    //   })
-    //   .collect();
-
-    siv.run();
 }
