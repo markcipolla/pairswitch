@@ -1,12 +1,13 @@
+use std::env;
+use clap::{Arg, App};
+
 #[path = "initialize_git.rs"]
 mod initialize_git;
 use initialize_git::{ initialize_git };
 
-#[path = "pre_commit.rs"]
-mod pre_commit;
-use pre_commit::{ pre_commit };
-
-use clap::{Arg, App};
+#[path = "prepare_commit_msg.rs"]
+mod prepare_commit_msg;
+use prepare_commit_msg::{ prepare_commit_msg };
 
 fn main() {
     let mut siv = cursive::default();
@@ -15,11 +16,14 @@ fn main() {
       .version("0.0.1")
       .author("Mark Cipolla <mark@markcipolla.com>")
       .about("Teaches argument parsing")
-      .arg(Arg::new("stage")
-        .short('s')
-        .long("stage")
-        .takes_value(true)
-        .help("Internally used to respond to Git hooks")
+      .arg(Arg::hide(
+        Arg::new("stage")
+          .short('s')
+          .long("stage")
+          .possible_values(&["pre-commit", "prepare-commit-msg"])
+          .takes_value(true)
+          .help("Internally used to respond to Git hooks"),
+        true)
       )
       .arg(Arg::new("init")
         .short('i')
@@ -36,10 +40,11 @@ fn main() {
       initialize_git(&mut siv);
       siv.run();
     } else if stage == "pre-commit" {
-      pre_commit(&mut siv);
+      prepare_commit_msg(&mut siv);
       siv.run();
     } else if stage == "prepare-commit-msg" {
-      println!("The stage is: {}", stage);
+      let args: Vec<String> = env::args().collect();
+      println!("{:?}", args);
     } else {
 
     }
