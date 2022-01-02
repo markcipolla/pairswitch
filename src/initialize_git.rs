@@ -9,6 +9,7 @@ pub fn initialize_git(siv: &mut Cursive) {
   siv.add_layer(Dialog::text(init_text)
     .title("Pairswitch")
     .button("Next", show_next));
+
 }
 
 fn show_answer(siv: &mut Cursive, msg: &str) {
