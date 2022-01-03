@@ -1,15 +1,13 @@
+use std::fs;
 use clap::ArgMatches;
-use std::path::PathBuf;
 
 pub fn commit(sub_matches: &ArgMatches) {
-  let paths = sub_matches
-    .values_of_os("PATH")
-    .unwrap_or_default()
-    .map(PathBuf::from)
-    .collect::<Vec<_>>();
-
-  println!("path {:?}", paths);
-
+  let path = sub_matches
+    .value_of_os("PATH")
+    .unwrap();
+  println!("path {:?}", path);
+  let contents = fs::read_to_string(path);
+  println!("contents {:?}", contents);
   let source = sub_matches
     .value_of_os("SOURCE")
     .unwrap();
