@@ -7,6 +7,7 @@ pub fn commit(sub_matches: &ArgMatches) {
     .unwrap();
   println!("path {:?}", path);
   let contents = fs::read_to_string(path);
+
   println!("contents {:?}", contents);
   let source = sub_matches
     .value_of_os("SOURCE")
