@@ -1,9 +1,5 @@
 use clap::{arg, App, AppSettings};
 
-#[path = "initialize_git.rs"]
-mod initialize_git;
-use initialize_git::{ initialize_git };
-
 #[path = "commit.rs"]
 mod commit;
 use commit::{ commit };
@@ -47,11 +43,6 @@ fn main() {
         )
     )
     .subcommand(
-      App::new("init")
-        .display_order(1)
-        .about("Sets up Pairswitch with the current Git repository's hooks")
-    )
-    .subcommand(
       App::new("start")
       .display_order(2)
       .about("Starts a pairing session")
@@ -66,10 +57,6 @@ fn main() {
     match arguments.subcommand() {
       Some(("commit", sub_matches)) => {
         commit(sub_matches);
-      }
-      Some(("init", _sub_matches)) => {
-        initialize_git(&mut siv);
-        siv.run();
       }
       Some(("start", _sub_matches)) => {
         start_pairing_session(&mut siv);
