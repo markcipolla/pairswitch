@@ -1,6 +1,7 @@
 
 use regex::Regex;
 use lazy_static::lazy_static;
+use itertools::Itertools;
 
 #[path = "run_command.rs"]
 mod run_command;
@@ -65,4 +66,38 @@ pub fn interrogate_git_repository() -> Vec<Commit> {
       return commit_row;
     }).collect();
   return commits;
+}
+
+fn co_author_names(commit: &Commit) -> Vec<String> {
+  commit.co_authors.iter().map(|co_author| { co_author.name.clone() }).collect()
+}
+
+fn authors_and_contributors(commit: &Commit) -> Vec<Contributor> {
+  let mut list = [commit.author.clone()].to_vec();
+  if commit.co_authors.len() > 0 {
+    commit.co_authors.iter().map(|c| list.push(c.clone()));
+  }
+  return list;
+}
+
+pub fn authors_and_contributors_names(commit: &Commit) -> String {
+  let contributors = authors_and_contributors(commit);
+
+  return contributors.iter().map(|contributor| contributor.clone().name).join(", ").to_string();
+}
+
+pub fn contributors(commits: Vec<Commit>) -> Vec<Contributor> {
+  let people: Vec<Contributor> = commits.iter()
+    .map(|commit| {
+      let mut list = [commit.author.clone()].to_vec();
+      if commit.co_authors.len() > 0 {
+        commit.co_authors.iter().map(|c| list.push(c.clone()));
+      }
+      return list;
+    })
+    .flatten()
+    .unique_by(|c| format!("{}-{}", c.name.clone(), c.email.clone()))
+    .collect();
+
+    return people;
 }
